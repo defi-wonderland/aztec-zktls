@@ -1,6 +1,7 @@
 node_modules
 target/
 src/artifacts/
+attestations/
 log/
 .vscode
 .DS_Store
@@ -8,9 +9,6 @@ codegenCache.json
 .env
 .cursor
 pxe-test/
-
-# Benchmark results (stored in artifacts, not git)
-benchmarks/*.benchmark.json
 pxe_data_*
 wallet_data_*
 
