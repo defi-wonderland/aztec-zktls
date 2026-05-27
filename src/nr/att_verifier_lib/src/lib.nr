@@ -1,6 +1,6 @@
+use keccak256::keccak256;
 use poseidon::poseidon2::Poseidon2;
 use sha256::sha256_var;
-use keccak256::keccak256;
 
 // -----------------------------------------------------------------------------
 // Internal helpers
@@ -33,7 +33,11 @@ fn verify_sig_and_urls<let MAX_URL_LEN: u32, let NUM_REQUEST_URLS: u32, let NUM_
         let allowed_url = allowed_urls[url_index];
         for j in 0..MAX_URL_LEN {
             if j < allowed_url.len() {
-                assert_eq(request_urls[i].storage()[j], allowed_url.storage()[j], "URL check failed");
+                assert_eq(
+                    request_urls[i].storage()[j],
+                    allowed_url.storage()[j],
+                    "URL check failed",
+                );
             }
         }
         let mut hash_input: [Field; MAX_URL_LEN] = [0; MAX_URL_LEN];
@@ -64,16 +68,7 @@ fn verify_sig_and_urls<let MAX_URL_LEN: u32, let NUM_REQUEST_URLS: u32, let NUM_
 // hardcoded 2 to 1 (one HTTP request per attestation).
 //
 // N = number of responseResolves.
-pub fn verify_attestation_hashing<
-    let MAX_URL_LEN: u32,
-    let N: u32,
-    let MAX_CONTENT_LEN: u32,
-    let MAX_HMB_LEN: u32,
-    let MAX_RR_LEN: u32,
-    let MAX_DATA_LEN: u32,
-    let MAX_COND_LEN: u32,
-    let MAX_PARAMS_LEN: u32,
->(
+pub fn verify_attestation_hashing<let MAX_URL_LEN: u32, let N: u32, let MAX_CONTENT_LEN: u32, let MAX_HMB_LEN: u32, let MAX_RR_LEN: u32, let MAX_DATA_LEN: u32, let MAX_COND_LEN: u32, let MAX_PARAMS_LEN: u32>(
     public_key_x: [u8; 32],
     public_key_y: [u8; 32],
     signature: [u8; 64],
@@ -105,7 +100,12 @@ pub fn verify_attestation_hashing<
 
     // 2. Verify ECDSA over the DERIVED hash + URL allow-list match.
     let allowed_url_matches = verify_sig_and_urls(
-        public_key_x, public_key_y, derived_hash, signature, request_urls, allowed_urls
+        public_key_x,
+        public_key_y,
+        derived_hash,
+        signature,
+        request_urls,
+        allowed_urls,
     );
 
     // 3. Bind each content to the (now signature-bound) `data` string: compute
@@ -135,15 +135,7 @@ pub fn verify_attestation_hashing<
 //     || data || attConditions || timestamp_be(8) || additionParams
 // where request_concat = (url || header+method+body) for the one request, and
 // response_concat = (keyName || parseType || parsePath) per resolve, flat-mapped.
-fn derive_envelope_hash<
-    let MAX_URL_LEN: u32,
-    let MAX_HMB_LEN: u32,
-    let N: u32,
-    let MAX_RR_LEN: u32,
-    let MAX_DATA_LEN: u32,
-    let MAX_COND_LEN: u32,
-    let MAX_PARAMS_LEN: u32,
->(
+fn derive_envelope_hash<let MAX_URL_LEN: u32, let MAX_HMB_LEN: u32, let N: u32, let MAX_RR_LEN: u32, let MAX_DATA_LEN: u32, let MAX_COND_LEN: u32, let MAX_PARAMS_LEN: u32>(
     recipient: [u8; 20],
     request_urls: [BoundedVec<u8, MAX_URL_LEN>; 1],
     request_hmb: BoundedVec<u8, MAX_HMB_LEN>,
@@ -187,18 +179,28 @@ fn derive_envelope_hash<
     let mut env_buf: [u8; 20 + 32 + 32 + MAX_DATA_LEN + MAX_COND_LEN + 8 + MAX_PARAMS_LEN] =
         [0; 20 + 32 + 32 + MAX_DATA_LEN + MAX_COND_LEN + 8 + MAX_PARAMS_LEN];
     let mut env_len: u32 = 0;
-    for j in 0..20 { env_buf[env_len + j] = recipient[j]; }
+    for j in 0..20 {
+        env_buf[env_len + j] = recipient[j];
+    }
     env_len += 20;
-    for j in 0..32 { env_buf[env_len + j] = request_hash[j]; }
+    for j in 0..32 {
+        env_buf[env_len + j] = request_hash[j];
+    }
     env_len += 32;
-    for j in 0..32 { env_buf[env_len + j] = response_hash[j]; }
+    for j in 0..32 {
+        env_buf[env_len + j] = response_hash[j];
+    }
     env_len += 32;
     for j in 0..MAX_DATA_LEN {
-        if j < data.len() { env_buf[env_len + j] = data.storage()[j]; }
+        if j < data.len() {
+            env_buf[env_len + j] = data.storage()[j];
+        }
     }
     env_len += data.len();
     for j in 0..MAX_COND_LEN {
-        if j < att_conditions.len() { env_buf[env_len + j] = att_conditions.storage()[j]; }
+        if j < att_conditions.len() {
+            env_buf[env_len + j] = att_conditions.storage()[j];
+        }
     }
     env_len += att_conditions.len();
     // timestamp as 8-byte big-endian
@@ -212,7 +214,9 @@ fn derive_envelope_hash<
     env_buf[env_len + 7] = (timestamp & 0xff) as u8;
     env_len += 8;
     for j in 0..MAX_PARAMS_LEN {
-        if j < addition_params.len() { env_buf[env_len + j] = addition_params.storage()[j]; }
+        if j < addition_params.len() {
+            env_buf[env_len + j] = addition_params.storage()[j];
+        }
     }
     env_len += addition_params.len();
 

@@ -64,10 +64,7 @@ pub contract QuoteVerifier {
 
     #[initializer]
     #[external("public")]
-    fn constructor(
-        allowed_url_hashes: [Field; NUM_ALLOWED_URLS],
-        initial_attestor: PublicKey,
-    ) {
+    fn constructor(allowed_url_hashes: [Field; NUM_ALLOWED_URLS], initial_attestor: PublicKey) {
         self.storage.allowed_url_hashes.initialize(allowed_url_hashes);
         self.storage.allowed_attestor.initialize(initial_attestor);
     }
