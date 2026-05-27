@@ -6,6 +6,7 @@ import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { getPublicEvents } from "@aztec/aztec.js/events";
 import type { EmbeddedWallet } from "@aztec/wallets/embedded";
 import type { AccountManager } from "@aztec/aztec.js/wallet";
+import type { TxHash } from "@aztec/stdlib/tx";
 import { QuoteVerifierContract } from "../artifacts/QuoteVerifier.js";
 
 export const NODE_URL = process.env.AZTEC_NODE_URL ?? "http://localhost:8080";
@@ -135,7 +136,7 @@ export async function deployAndVerify(
   witness: Witness,
 ): Promise<{
   contract: QuoteVerifierContract;
-  receipt: { status: string; blockNumber?: number; txHash: unknown };
+  receipt: { status: string; blockNumber?: number; txHash: TxHash };
 }> {
   const allowedUrlHashes = await hashAllowedUrlsFromWitness(
     bb,
@@ -176,7 +177,7 @@ export async function deployAndVerify(
     receipt: receipt as {
       status: string;
       blockNumber?: number;
-      txHash: unknown;
+      txHash: TxHash;
     },
   };
 }
@@ -187,17 +188,15 @@ export async function deployAndVerify(
  */
 export async function fetchQuoteVerifiedEvents(
   contract: QuoteVerifierContract,
-  txHash: unknown,
+  txHash: TxHash,
 ): Promise<Array<{ event: { sender: unknown; provider_url_hash: bigint } }>> {
   const node = createAztecNodeClient(NODE_URL);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const eventSpec = (QuoteVerifierContract as any).events.QuoteVerified;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { events } = await getPublicEvents(node, eventSpec, {
-    txHash: txHash as never,
+  const { events } = await getPublicEvents<{
+    sender: unknown;
+    provider_url_hash: bigint;
+  }>(node, QuoteVerifierContract.events.QuoteVerified, {
+    txHash,
     contractAddress: contract.address,
-  } as never);
-  return events as Array<{
-    event: { sender: unknown; provider_url_hash: bigint };
-  }>;
+  });
+  return events;
 }
