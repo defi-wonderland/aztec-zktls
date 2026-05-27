@@ -22,7 +22,10 @@ function bigintReplacer(_key: string, value: unknown) {
  */
 export function formatWitnessJson(obj: unknown): string {
   const pretty = JSON.stringify(obj, bigintReplacer, 2);
-  return pretty.replace(/\[\s*(?:-?\d+\s*,?\s*)+\]/g, (match) => {
+  // Matches a JSON array containing only numbers (possibly multi-line from
+  // pretty-print). Requires a comma between consecutive numbers, which removes
+  // the ambiguity that made the previous greedy form ReDoS-prone.
+  return pretty.replace(/\[\s*(?:-?\d+(?:\s*,\s*-?\d+)*\s*)?\]/g, (match) => {
     const nums = match.match(/-?\d+/g) ?? [];
     return `[${nums.join(", ")}]`;
   });
