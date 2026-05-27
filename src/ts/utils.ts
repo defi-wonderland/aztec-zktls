@@ -6,7 +6,7 @@ import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { getPublicEvents } from "@aztec/aztec.js/events";
 import type { EmbeddedWallet } from "@aztec/wallets/embedded";
 import type { AccountManager } from "@aztec/aztec.js/wallet";
-import { QuoteVerifierContract } from "./artifacts/QuoteVerifier.js";
+import { QuoteVerifierContract } from "../artifacts/QuoteVerifier.js";
 
 export const NODE_URL = process.env.AZTEC_NODE_URL ?? "http://localhost:8080";
 
