@@ -20,6 +20,7 @@
     "test:e2e": "RUN_E2E=1 vitest run",
     "typecheck": "tsc --noEmit",
     "lint:prettier": "prettier '**/*.{js,ts}' --write",
+    "bench": "NODE_NO_WARNINGS=1 aztec-benchmark --suffix _base",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -30,6 +31,7 @@
     "@aztec/aztec.js": "4.3.0",
     "@aztec/bb.js": "4.3.0",
     "@aztec/wallets": "4.3.0",
+    "@defi-wonderland/aztec-benchmark": "4.3.0",
     "@noble/curves": "^1.6.0",
     "@noble/hashes": "^1.5.0",
     "@primuslabs/network-core-sdk": "^0.1.5",
