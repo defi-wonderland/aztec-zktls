@@ -16,7 +16,10 @@ import {
 // Default: load the committed fixture so this suite is fully offline.
 // Override with WITNESS_FILE (full path) or WITNESS_PROVIDER (e.g. "binance-")
 // to load from attestations/ instead.
-const FIXTURE_PATH = path.resolve(__dirname, "fixtures/binance-ETHUSDT.witness.json");
+const FIXTURE_PATH = path.resolve(
+  import.meta.dirname,
+  "fixtures/binance-ETHUSDT.witness.json",
+);
 const WITNESS_FILE = process.env.WITNESS_FILE;
 const WITNESS_PROVIDER = process.env.WITNESS_PROVIDER;
 
@@ -33,7 +36,8 @@ describe("QuoteVerifier (cached witness)", () => {
     bb = await Barretenberg.new();
 
     const [first] = await getInitialTestAccountsData();
-    if (!first) throw new Error("No initial test accounts on the local network");
+    if (!first)
+      throw new Error("No initial test accounts on the local network");
     account = await wallet.createSchnorrAccount(first.secret, first.salt);
   }, 120_000);
 
@@ -42,14 +46,17 @@ describe("QuoteVerifier (cached witness)", () => {
   });
 
   it("deploys, verifies, and emits QuoteVerified", async () => {
-    const witnessPath = WITNESS_FILE
-      ?? (WITNESS_PROVIDER ? findLatestWitness(WITNESS_PROVIDER) : FIXTURE_PATH);
+    const witnessPath =
+      WITNESS_FILE ??
+      (WITNESS_PROVIDER ? findLatestWitness(WITNESS_PROVIDER) : FIXTURE_PATH);
     console.log(`[test] witness: ${witnessPath}`);
     const w = loadWitness(witnessPath);
 
     const { contract, receipt } = await deployAndVerify(wallet, bb, account, w);
 
-    console.log(`[test] tx status: ${receipt.status}, block: ${receipt.blockNumber}`);
+    console.log(
+      `[test] tx status: ${receipt.status}, block: ${receipt.blockNumber}`,
+    );
     // Aztec 4.2.0 progresses tx state through "pending" -> "proposed" ->
     // "proven" -> "checkpointed". Any of the last three means the tx made it
     // onto a block proposal and the contract's verification logic executed

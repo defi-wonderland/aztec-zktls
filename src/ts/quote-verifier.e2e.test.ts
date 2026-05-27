@@ -32,7 +32,7 @@ import {
 //   - `aztec start --local-network` running on localhost:8080
 const RUN_E2E = process.env.RUN_E2E === "1";
 
-const REPO_ROOT = path.resolve(__dirname, "../../");
+const REPO_ROOT = path.resolve(import.meta.dirname, "../../");
 
 type AttMode = "mpctls" | "proxytls";
 
@@ -44,8 +44,18 @@ type E2ECase = {
 };
 
 const CASES: E2ECase[] = [
-  { label: "binance + mpctls",   provider: "binance",  symbol: "ETHUSDT", mode: "mpctls" },
-  { label: "coinbase + proxytls", provider: "coinbase", symbol: "ETH-USD", mode: "proxytls" },
+  {
+    label: "binance + mpctls",
+    provider: "binance",
+    symbol: "ETHUSDT",
+    mode: "mpctls",
+  },
+  {
+    label: "coinbase + proxytls",
+    provider: "coinbase",
+    symbol: "ETH-USD",
+    mode: "proxytls",
+  },
 ];
 
 describe("QuoteVerifier E2E (live Primus attestation)", () => {
@@ -58,7 +68,10 @@ describe("QuoteVerifier E2E (live Primus attestation)", () => {
 
     // Sanity: PRIVATE_KEY must be in .env or the attest subprocess errors out.
     const envPath = path.join(REPO_ROOT, ".env");
-    if (!fs.existsSync(envPath) || !/^PRIVATE_KEY=\S+/m.test(fs.readFileSync(envPath, "utf8"))) {
+    if (
+      !fs.existsSync(envPath) ||
+      !/^PRIVATE_KEY=\S+/m.test(fs.readFileSync(envPath, "utf8"))
+    ) {
       throw new Error(`E2E test needs PRIVATE_KEY in ${envPath}`);
     }
 
@@ -69,7 +82,8 @@ describe("QuoteVerifier E2E (live Primus attestation)", () => {
     bb = await Barretenberg.new();
 
     const [first] = await getInitialTestAccountsData();
-    if (!first) throw new Error("No initial test accounts on the local network");
+    if (!first)
+      throw new Error("No initial test accounts on the local network");
     account = await wallet.createSchnorrAccount(first.secret, first.salt);
   }, 120_000);
 
@@ -79,7 +93,9 @@ describe("QuoteVerifier E2E (live Primus attestation)", () => {
 
   async function runE2E(c: E2ECase): Promise<void> {
     const tag = `[e2e ${c.label}]`;
-    console.log(`${tag} requesting fresh ${c.provider}/${c.symbol} attestation from Primus...`);
+    console.log(
+      `${tag} requesting fresh ${c.provider}/${c.symbol} attestation from Primus...`,
+    );
     const attest = spawnSync(
       "yarn",
       ["attest", c.provider, `symbol=${c.symbol}`, `mode=${c.mode}`],
@@ -96,7 +112,9 @@ describe("QuoteVerifier E2E (live Primus attestation)", () => {
     const w = loadWitness(witnessPath);
 
     const { contract, receipt } = await deployAndVerify(wallet, bb, account, w);
-    console.log(`${tag} tx status: ${receipt.status}, block: ${receipt.blockNumber}`);
+    console.log(
+      `${tag} tx status: ${receipt.status}, block: ${receipt.blockNumber}`,
+    );
     expect(["proposed", "proven", "checkpointed"]).toContain(receipt.status);
     expect(receipt.blockNumber).toBeGreaterThan(0);
 

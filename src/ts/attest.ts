@@ -1,4 +1,7 @@
-import { PrimusNetwork, type ResponseResolve } from "@primuslabs/network-core-sdk";
+import {
+  PrimusNetwork,
+  type ResponseResolve,
+} from "@primuslabs/network-core-sdk";
 import { ethers } from "ethers";
 import fs from "node:fs";
 import path from "node:path";
@@ -8,7 +11,7 @@ import { loadClaim } from "./load-claim";
 
 type NetworkConfig = { chainId: number; rpcUrl: string };
 
-const ROOT = path.resolve(__dirname, "..");
+const ROOT = path.resolve(import.meta.dirname, "..", "..");
 
 function requireEnv(name: string): string {
   const v = process.env[name]?.trim();
@@ -56,23 +59,31 @@ async function main() {
   // `mode` is a flag, not a template param — pluck it out before interpolation.
   const { mode: modeOverride, ...templateParams } = allParams;
   if (modeOverride && !VALID_MODES.includes(modeOverride as AttMode)) {
-    throw new Error(`Invalid mode '${modeOverride}'. Use one of: ${VALID_MODES.join(", ")}`);
+    throw new Error(
+      `Invalid mode '${modeOverride}'. Use one of: ${VALID_MODES.join(", ")}`,
+    );
   }
 
   const networkName = process.env.NETWORK?.trim() ?? "baseSepolia";
   const privateKey = requireEnv("PRIVATE_KEY");
 
-  const networks = loadJson<Record<string, NetworkConfig>>(path.join(ROOT, "config.json"));
+  const networks = loadJson<Record<string, NetworkConfig>>(
+    path.join(ROOT, "config.json"),
+  );
   const net = networks[networkName];
   if (!net) {
-    throw new Error(`Unknown NETWORK '${networkName}'. Available: ${Object.keys(networks).join(", ")}`);
+    throw new Error(
+      `Unknown NETWORK '${networkName}'. Available: ${Object.keys(networks).join(", ")}`,
+    );
   }
 
   const claim = loadClaim(providerName, templateParams);
 
   const attMode: { algorithmType: AttMode } = modeOverride
     ? { algorithmType: modeOverride as AttMode }
-    : (claim.attMode as { algorithmType: AttMode } | undefined) ?? { algorithmType: "mpctls" };
+    : ((claim.attMode as { algorithmType: AttMode } | undefined) ?? {
+        algorithmType: "mpctls",
+      });
 
   const provider = new ethers.providers.JsonRpcProvider(net.rpcUrl);
   const wallet = new ethers.Wallet(privateKey, provider);
@@ -81,7 +92,9 @@ async function main() {
   console.log(`[zktls] claim:   ${claim.name}`);
   console.log(`[zktls] network: ${networkName} (chainId=${net.chainId})`);
   console.log(`[zktls] address: ${address}`);
-  console.log(`[zktls] mode:    ${attMode.algorithmType}${modeOverride ? " (cli override)" : ""}`);
+  console.log(
+    `[zktls] mode:    ${attMode.algorithmType}${modeOverride ? " (cli override)" : ""}`,
+  );
 
   const primus = new PrimusNetwork();
   await primus.init(wallet, net.chainId);
@@ -110,7 +123,10 @@ async function main() {
   console.log("[zktls] task result:", JSON.stringify(taskResult, null, 2));
 
   const allJsonResponse = primus.getAllJsonResponse(first.taskId);
-  console.log("[zktls] allJsonResponse:", JSON.stringify(allJsonResponse, null, 2));
+  console.log(
+    "[zktls] allJsonResponse:",
+    JSON.stringify(allJsonResponse, null, 2),
+  );
 
   const attData = JSON.parse(first.attestation.data) as Record<string, string>;
   const dataKeys = Object.keys(attData);
@@ -169,7 +185,9 @@ async function main() {
     fs.writeFileSync(witnessPath, formatWitnessJson(witness));
     console.log(`[zktls] saved witness -> ${path.relative(ROOT, witnessPath)}`);
   } catch (err) {
-    console.warn("[zktls] WARN: prepareWitness failed. Raw attestation saved; re-run prepare-witness after inspecting.");
+    console.warn(
+      "[zktls] WARN: prepareWitness failed. Raw attestation saved; re-run prepare-witness after inspecting.",
+    );
     console.warn(err);
   }
 }

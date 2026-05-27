@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseHashingData } from "./att-verifier-parsing";
 import type { AttestationFile } from "./att-verifier-parsing/types";
 import { loadClaim, type Claim } from "./load-claim";
 
-const ROOT = path.resolve(__dirname, "..");
+const ROOT = path.resolve(import.meta.dirname, "..", "..");
 
 function loadJson<T>(p: string): T {
   return JSON.parse(fs.readFileSync(p, "utf8")) as T;
@@ -56,14 +57,19 @@ export function prepareWitness(rawAttestationPath: string, claim: Claim) {
 function main() {
   const rawPath = process.argv[2];
   if (!rawPath) {
-    throw new Error("Usage: prepare-witness <path-to-.raw.json> [provider] [key=value ...]");
+    throw new Error(
+      "Usage: prepare-witness <path-to-.raw.json> [provider] [key=value ...]",
+    );
   }
-  const absRaw = path.isAbsolute(rawPath) ? rawPath : path.join(process.cwd(), rawPath);
+  const absRaw = path.isAbsolute(rawPath)
+    ? rawPath
+    : path.join(process.cwd(), rawPath);
 
   // Filename pattern: "binance-ETHUSDT-2026-...raw.json" → provider="binance", symbol="ETHUSDT".
   const fileParts = path.basename(rawPath).split("-");
   const rest = process.argv.slice(3);
-  const providerName = rest.length > 0 && !rest[0]!.includes("=") ? rest.shift()! : fileParts[0]!;
+  const providerName =
+    rest.length > 0 && !rest[0]!.includes("=") ? rest.shift()! : fileParts[0]!;
 
   const params: Record<string, string> = {};
   for (const kv of rest) {
@@ -86,7 +92,7 @@ function main() {
   console.log(`[prepare-witness] saved -> ${path.relative(ROOT, witnessPath)}`);
 }
 
-if (require.main === module) {
+if (process.argv[1] && process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     main();
   } catch (err) {

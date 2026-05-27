@@ -19,7 +19,11 @@ export const MAX_URL_LEN = 96;
  * internally over the allowed_urls argument, so the storage hashes we
  * commit at deploy match the matched_url_hashes the circuit returns.
  */
-export async function poseidon2HashUrl(bb: Barretenberg, url: string, maxLen: number): Promise<bigint> {
+export async function poseidon2HashUrl(
+  bb: Barretenberg,
+  url: string,
+  maxLen: number,
+): Promise<bigint> {
   const bytes = Array.from(new TextEncoder().encode(url));
   while (bytes.length < maxLen) bytes.push(0);
   const inputs = bytes.map((b) => new Fr(BigInt(b)).toBuffer());
@@ -27,7 +31,11 @@ export async function poseidon2HashUrl(bb: Barretenberg, url: string, maxLen: nu
   return BigInt(Fr.fromBuffer(Buffer.from(hashFr.hash)).toString());
 }
 
-export async function hashAllowedUrls(bb: Barretenberg, urls: string[], maxLen: number): Promise<bigint[]> {
+export async function hashAllowedUrls(
+  bb: Barretenberg,
+  urls: string[],
+  maxLen: number,
+): Promise<bigint[]> {
   const hashes: bigint[] = [];
   for (const url of urls) hashes.push(await poseidon2HashUrl(bb, url, maxLen));
   return hashes;
@@ -38,7 +46,11 @@ export async function hashAllowedUrls(bb: Barretenberg, urls: string[], maxLen: 
  * Used to derive contract storage allowed_url_hashes directly from a witness,
  * so the test doesn't have to hardcode the URL strings.
  */
-export async function poseidon2HashUrlBytes(bb: Barretenberg, bytes: number[], maxLen: number): Promise<bigint> {
+export async function poseidon2HashUrlBytes(
+  bb: Barretenberg,
+  bytes: number[],
+  maxLen: number,
+): Promise<bigint> {
   const padded = bytes.slice();
   while (padded.length < maxLen) padded.push(0);
   const inputs = padded.map((b) => new Fr(BigInt(b)).toBuffer());
@@ -52,7 +64,8 @@ export async function hashAllowedUrlsFromWitness(
   maxLen: number,
 ): Promise<bigint[]> {
   const hashes: bigint[] = [];
-  for (const bytes of allowedUrls) hashes.push(await poseidon2HashUrlBytes(bb, bytes, maxLen));
+  for (const bytes of allowedUrls)
+    hashes.push(await poseidon2HashUrlBytes(bb, bytes, maxLen));
   return hashes;
 }
 
@@ -80,18 +93,25 @@ export type Witness = {
  * to take the latest witness across all providers.
  */
 export function findLatestWitness(prefix?: string): string {
-  const dir = path.resolve(__dirname, "../../attestations");
+  const dir = path.resolve(import.meta.dirname, "../../attestations");
   if (!fs.existsSync(dir)) {
-    throw new Error(`No attestations directory at ${dir}. Run \`yarn attest <provider> symbol=...\` first.`);
+    throw new Error(
+      `No attestations directory at ${dir}. Run \`yarn attest <provider> symbol=...\` first.`,
+    );
   }
   const files = fs
     .readdirSync(dir)
-    .filter((f) => f.endsWith(".witness.json") && (prefix ? f.startsWith(prefix) : true))
+    .filter(
+      (f) =>
+        f.endsWith(".witness.json") && (prefix ? f.startsWith(prefix) : true),
+    )
     .sort()
     .reverse();
   if (files.length === 0) {
     const hint = prefix ? `matching '${prefix}*'` : "";
-    throw new Error(`No witnesses ${hint}in ${dir}. Run \`yarn attest <provider> symbol=...\` first.`);
+    throw new Error(
+      `No witnesses ${hint}in ${dir}. Run \`yarn attest <provider> symbol=...\` first.`,
+    );
   }
   return path.join(dir, files[0]!);
 }
@@ -113,8 +133,15 @@ export async function deployAndVerify(
   bb: Barretenberg,
   account: AccountManager,
   witness: Witness,
-): Promise<{ contract: QuoteVerifierContract; receipt: { status: string; blockNumber?: number; txHash: unknown } }> {
-  const allowedUrlHashes = await hashAllowedUrlsFromWitness(bb, witness.allowedUrls, MAX_URL_LEN);
+): Promise<{
+  contract: QuoteVerifierContract;
+  receipt: { status: string; blockNumber?: number; txHash: unknown };
+}> {
+  const allowedUrlHashes = await hashAllowedUrlsFromWitness(
+    bb,
+    witness.allowedUrls,
+    MAX_URL_LEN,
+  );
   const initialAttestor = { x: witness.publicKeyX, y: witness.publicKeyY };
 
   const { contract } = await QuoteVerifierContract.deploy(
@@ -144,7 +171,14 @@ export async function deployAndVerify(
     )
     .send({ from: account.address, wait: { timeout: TX_TIMEOUT } });
 
-  return { contract, receipt: receipt as { status: string; blockNumber?: number; txHash: unknown } };
+  return {
+    contract,
+    receipt: receipt as {
+      status: string;
+      blockNumber?: number;
+      txHash: unknown;
+    },
+  };
 }
 
 /**
@@ -163,5 +197,7 @@ export async function fetchQuoteVerifiedEvents(
     txHash: txHash as never,
     contractAddress: contract.address,
   } as never);
-  return events as Array<{ event: { sender: unknown; provider_url_hash: bigint } }>;
+  return events as Array<{
+    event: { sender: unknown; provider_url_hash: bigint };
+  }>;
 }
