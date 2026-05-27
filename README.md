@@ -115,7 +115,7 @@ We keep a local copy at `src/nr/att_verifier_lib/` — based on upstream `main` 
 
 **Patches:**
 1. `starts_with`'s strict `haystack.len() > needle.len()` relaxed to `>=` (so request URL byte-equal to allowed URL passes). Reasoning below.
-2. `sha256_var(..., len as u64)` → `len as u32` because the upstream `Nargo.toml` we bumped from `noir-lang/sha256 v0.2.1` to `v0.3.0` for aztec-nr 4.2.0 compatibility tightened the length arg type. One-character mechanical fix.
+2. `sha256_var(..., len as u64)` → `len as u32` because the upstream `Nargo.toml` we bumped from `noir-lang/sha256 v0.2.1` to `v0.3.0` for aztec-nr 4.3.0 compatibility tightened the length arg type. One-character mechanical fix.
 
 **Larger rewrites:**
 3. **`verify_attestation_hashing` now reconstructs `keccak256(envelope)` in-circuit.** Upstream takes `hash` as a witness and verifies ECDSA over it without tying `hash` to the envelope contents (upstream issue [#9](https://github.com/primus-labs/zktls-verification-noir/issues/9)). Our version takes the raw envelope fields, derives the hash via the Primus `encodePacked` byte layout, and binds each content's SHA256 hex to the signed `data` string at a witness-provided offset. Adds the `noir-lang/keccak256` dep.
@@ -188,7 +188,7 @@ Open an upstream PR at `primus-labs/zktls-verification-noir` flipping that one o
 ## Prerequisites
 
 - Node ≥ 20, yarn
-- Aztec CLI 4.2.0 (`.aztecrc` pins it; `aztec-up install 4.2.0` if missing)
+- Aztec CLI 4.3.0 (`.aztecrc` pins it; `aztec-up install 4.3.0` if missing)
 - A Base Sepolia wallet with a small amount of ETH for `submitTask` gas
 
 ### Getting Base Sepolia ETH
@@ -275,7 +275,7 @@ The e2e suite is gated by `RUN_E2E=1` so default `yarn test:js` stays cheap and 
 ├── package.json                                all scripts (attest, ccc, test:js, test:e2e, …)
 ├── tsconfig.json
 ├── vitest.config.ts
-├── .aztecrc                                    pins aztec CLI 4.2.0
+├── .aztecrc                                    pins aztec CLI 4.3.0
 ├── Nargo.toml                                  Noir workspace
 ├── config.json                                 Base Sepolia + Base mainnet RPC config
 └── src/
