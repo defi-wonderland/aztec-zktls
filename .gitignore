@@ -12,3 +12,9 @@ pxe-test/
 pxe_data_*
 wallet_data_*
 
+# Benchmark results (stored in artifacts, not git)
+benchmarks/*.benchmark.json
+
+# TypeScript incremental build cache
+tsconfig.tsbuildinfo
+

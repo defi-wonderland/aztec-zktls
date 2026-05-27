@@ -185,10 +185,10 @@ async function main() {
     fs.writeFileSync(witnessPath, formatWitnessJson(witness));
     console.log(`[zktls] saved witness -> ${path.relative(ROOT, witnessPath)}`);
   } catch (err) {
-    console.warn(
-      "[zktls] WARN: prepareWitness failed. Raw attestation saved; re-run prepare-witness after inspecting.",
+    console.error(
+      "[zktls] prepareWitness failed. Raw attestation saved; re-run prepare-witness after inspecting.",
     );
-    console.warn(err);
+    throw err;
   }
 }
 

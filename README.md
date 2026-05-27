@@ -187,7 +187,7 @@ Open an upstream PR at `primus-labs/zktls-verification-noir` flipping that one o
 
 ## Prerequisites
 
-- Node ≥ 20, yarn
+- Node ≥ 22, yarn
 - Aztec CLI 4.3.0 (`.aztecrc` pins it; `aztec-up install 4.3.0` if missing)
 - A Base Sepolia wallet with a small amount of ETH for `submitTask` gas
 
