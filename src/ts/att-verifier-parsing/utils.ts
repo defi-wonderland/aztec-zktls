@@ -11,16 +11,28 @@ export function encodePacked(publicData: AttestationData): number[] {
 
   out.push(...Buffer.from(publicData.recipient.slice(2), "hex"));
 
+  // `header` can arrive as either a string (Primus normalizes claim objects
+  // before signing) or a Record — match `parseRequestHmb`'s normalization so
+  // off-chain pubkey recovery and the in-circuit envelope reconstruction
+  // agree byte-for-byte even if a caller hands us an object header.
+  const normalizeHeader = (h: string | Record<string, string>): string =>
+    typeof h === "string" ? h : JSON.stringify(h);
+
   if (Array.isArray(publicData.request)) {
     const requestConcat = publicData.request
-      .map((req) => req.url + req.header + req.method + req.body)
+      .map(
+        (req) => req.url + normalizeHeader(req.header) + req.method + req.body,
+      )
       .join("");
     out.push(...keccak_256(Buffer.from(requestConcat, "utf8")));
   } else {
     const req = publicData.request;
     out.push(
       ...keccak_256(
-        Buffer.from(req.url + req.header + req.method + req.body, "utf8"),
+        Buffer.from(
+          req.url + normalizeHeader(req.header) + req.method + req.body,
+          "utf8",
+        ),
       ),
     );
   }
