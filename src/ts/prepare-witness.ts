@@ -1,0 +1,96 @@
+import fs from "node:fs";
+import path from "node:path";
+import { parseHashingData } from "./att-verifier-parsing";
+import type { AttestationFile } from "./att-verifier-parsing/types";
+import { loadClaim, type Claim } from "./load-claim";
+
+const ROOT = path.resolve(__dirname, "..");
+
+function loadJson<T>(p: string): T {
+  return JSON.parse(fs.readFileSync(p, "utf8")) as T;
+}
+
+function bigintReplacer(_key: string, value: unknown) {
+  return typeof value === "bigint" ? value.toString() : value;
+}
+
+/**
+ * Pretty-print with collapsed inner number arrays (so 32-byte hash arrays etc.
+ * stay on one line). Keeps the witness file readable without blowing it up
+ * vertically.
+ */
+export function formatWitnessJson(obj: unknown): string {
+  const pretty = JSON.stringify(obj, bigintReplacer, 2);
+  return pretty.replace(/\[\s*(?:-?\d+\s*,?\s*)+\]/g, (match) => {
+    const nums = match.match(/-?\d+/g) ?? [];
+    return `[${nums.join(", ")}]`;
+  });
+}
+
+function resolveAttestationFile(input: unknown): AttestationFile {
+  if (
+    input &&
+    typeof input === "object" &&
+    "public_data" in (input as Record<string, unknown>) &&
+    "private_data" in (input as Record<string, unknown>)
+  ) {
+    return input as AttestationFile;
+  }
+  throw new Error(
+    "Could not find AttestationFile shape (expected fields: public_data[], private_data). " +
+      "Pass the .raw.json file produced by generate-proof, not the .full.json wrapper.",
+  );
+}
+
+export function prepareWitness(rawAttestationPath: string, claim: Claim) {
+  const attestation = loadJson<AttestationFile>(rawAttestationPath);
+  resolveAttestationFile(attestation);
+
+  return parseHashingData(attestation, {
+    maxResponseNum: claim.verifier.maxResponseNum,
+    maxUrlLen: claim.verifier.maxUrlLen,
+    allowedUrls: claim.verifier.allowedUrls,
+  });
+}
+
+function main() {
+  const rawPath = process.argv[2];
+  if (!rawPath) {
+    throw new Error("Usage: prepare-witness <path-to-.raw.json> [provider] [key=value ...]");
+  }
+  const absRaw = path.isAbsolute(rawPath) ? rawPath : path.join(process.cwd(), rawPath);
+
+  // Filename pattern: "binance-ETHUSDT-2026-...raw.json" → provider="binance", symbol="ETHUSDT".
+  const fileParts = path.basename(rawPath).split("-");
+  const rest = process.argv.slice(3);
+  const providerName = rest.length > 0 && !rest[0]!.includes("=") ? rest.shift()! : fileParts[0]!;
+
+  const params: Record<string, string> = {};
+  for (const kv of rest) {
+    const [k, ...v] = kv.split("=");
+    if (!k || v.length === 0) throw new Error(`Bad key=value arg: ${kv}`);
+    params[k] = v.join("=");
+  }
+  if (!params.symbol && fileParts[1]) params.symbol = fileParts[1];
+
+  const claim = loadClaim(providerName, params);
+
+  console.log(`[prepare-witness] claim:    ${claim.name}`);
+  console.log(`[prepare-witness] provider: ${providerName}`);
+  console.log(`[prepare-witness] input:    ${path.relative(ROOT, absRaw)}`);
+
+  const witness = prepareWitness(absRaw, claim);
+
+  const witnessPath = absRaw.replace(/\.raw\.json$/, ".witness.json");
+  fs.writeFileSync(witnessPath, formatWitnessJson(witness));
+  console.log(`[prepare-witness] saved -> ${path.relative(ROOT, witnessPath)}`);
+}
+
+if (require.main === module) {
+  try {
+    main();
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
+  }
+}
