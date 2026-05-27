@@ -1,0 +1,24 @@
+{
+  "name": "coinbase-{symbol}",
+  "requests": [
+    {
+      "url": "https://api.coinbase.com/v2/prices/{symbol}/spot",
+      "method": "GET",
+      "header": {},
+      "body": ""
+    }
+  ],
+  "responseResolves": [
+    [
+      {
+        "keyName": "price",
+        "parseType": "json",
+        "parsePath": "$.data.amount",
+        "op": "SHA256"
+      }
+    ]
+  ],
+  "attMode": {
+    "algorithmType": "mpctls"
+  }
+}

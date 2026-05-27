@@ -1,0 +1,10 @@
+{
+  "_comment": "Shared verifier/allowlist config used by ALL providers. The 3 allowed URLs are the full (provider, symbol)-bearing URLs the deployed contract accepts (NUM_ALLOWED_URLS=3 in the lib). Request URL == allowed URL byte-for-byte; the local att_verifier_lib has a one-character patch (`>` -> `>=` on the unconstrained `starts_with` helper) that allows this -- see contract/src/nr/att_verifier_lib/src/lib.nr and the README 'Why we patch the local lib' section.",
+  "maxResponseNum": 1,
+  "maxUrlLen": 96,
+  "allowedUrls": [
+    "https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT",
+    "https://www.okx.com/api/v5/market/ticker?instId=ETH-USDT",
+    "https://api.coinbase.com/v2/prices/ETH-USD/spot"
+  ]
+}
