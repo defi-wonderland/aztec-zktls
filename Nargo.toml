@@ -1,4 +1,5 @@
 [workspace]
 members = [
     "src/nr/att_verifier_lib",
+    "src/nr/quote_verifier",
 ]
