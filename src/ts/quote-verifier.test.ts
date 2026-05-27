@@ -57,7 +57,7 @@ describe("QuoteVerifier (cached witness)", () => {
     console.log(
       `[test] tx status: ${receipt.status}, block: ${receipt.blockNumber}`,
     );
-    // Aztec 4.2.0 progresses tx state through "pending" -> "proposed" ->
+    // Aztec progresses tx state through "pending" -> "proposed" ->
     // "proven" -> "checkpointed". Any of the last three means the tx made it
     // onto a block proposal and the contract's verification logic executed
     // successfully. A revert would have thrown before reaching this point.
