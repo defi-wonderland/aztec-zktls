@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseHashingData } from "./att-verifier-parsing";
-import type { AttestationFile } from "./att-verifier-parsing/types";
+import { parseHashingData } from "./attestation-verifier-parsing";
+import type { AttestationFile } from "./attestation-verifier-parsing/types";
 import { loadClaim, type Claim } from "./load-claim";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");

@@ -129,7 +129,7 @@ Cached results are committed at `benchmarks/quote_verifier_base.benchmark.json`.
         ├── attest.ts                           runs Primus pipeline, writes 3 JSONs
         ├── prepare-witness.ts                  rebuilds witness.json from raw.json
         ├── load-claim.ts                       merges per-provider claim + shared verifier
-        ├── att-verifier-parsing/               local copy of Primus's TS parser (no aztec deps)
+        ├── attestation-verifier-parsing/       local copy of Primus's TS parser (vendored from upstream's att_verifier_parsing/)
         ├── providers/
         │   ├── verifier.json                   ← shared: mode/maxes/allowedUrls (all 3 providers)
         │   ├── binance/claim.json

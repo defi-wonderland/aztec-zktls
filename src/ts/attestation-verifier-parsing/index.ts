@@ -29,19 +29,33 @@ export function parseHashingData(
   const { sig, compactBytes } = parseSignature(publicData.signature);
   const pubKey = recoverPublicKey(sig, msgHash);
 
-  const requestUrls = parseRequestUrls(publicAttestation.request, config.maxResponseNum);
+  const requestUrls = parseRequestUrls(
+    publicAttestation.request,
+    config.maxResponseNum,
+  );
   const allowedUrls = parseAllowedUrls(config.allowedUrls);
-  const plainJsonResponses = parsePlainJsonResponses(attestationData.private_data);
+  const plainJsonResponses = parsePlainJsonResponses(
+    attestationData.private_data,
+  );
 
   // Envelope fields for in-circuit keccak reconstruction.
   const recipient = parseRecipient(publicAttestation.recipient);
   const requestHmb = parseRequestHmb(publicAttestation.request);
-  const responseResolves = parseResponseResolveStrings(publicAttestation.responseResolves);
+  const responseResolves = parseResponseResolveStrings(
+    publicAttestation.responseResolves,
+  );
   const data = Array.from(new TextEncoder().encode(publicAttestation.data));
-  const attConditions = Array.from(new TextEncoder().encode(publicAttestation.attConditions));
+  const attConditions = Array.from(
+    new TextEncoder().encode(publicAttestation.attConditions),
+  );
   const timestamp = String(publicAttestation.timestamp);
-  const additionParams = Array.from(new TextEncoder().encode(publicAttestation.additionParams));
-  const dataHashOffsets = parseDataHashOffsets(publicAttestation.data, attestationData.private_data);
+  const additionParams = Array.from(
+    new TextEncoder().encode(publicAttestation.additionParams),
+  );
+  const dataHashOffsets = parseDataHashOffsets(
+    publicAttestation.data,
+    attestationData.private_data,
+  );
 
   return {
     publicKeyX: pubKey.x,
