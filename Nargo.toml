@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "src/nr/attestation_verifier",
-    "src/nr/quote_verifier",
+    "src/nr/examples/quote_verifier",
 ]
 
 [benchmark]
