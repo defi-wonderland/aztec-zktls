@@ -23,14 +23,14 @@ To switch the supported asset (e.g. BTC instead of ETH), edit `src/ts/providers/
 
 ## Design choices
 
-Why each knob is set to what it is. Some constants are hard constraints from `att_verifier_lib`'s function signature ([primus-labs/zktls-verification-noir](https://github.com/primus-labs/zktls-verification-noir)) — you cannot change them without forking the lib. The rest is judgement.
+Why each knob is set to what it is. Some constants are hard constraints from `attestation_verifier`'s function signatures - modified from [primus-labs/zktls-verification-noir](https://github.com/primus-labs/zktls-verification-noir). The rest is judgement.
 
-### Hard constraints (set by the Primus lib)
+### Hard constraints (set by Primus's protocol)
 
 | Constant | Value | Why |
 |---|---|---|
-| `NUM_REQUEST_URLS` | **1** | Hardcoded in the signature of `verify_attestation_hashing`. Upstream pins it at 2 (designed for multi-URL fan-out); our local copy drops it to 1 since we only ever make one HTTP request per attestation. |
-| `NUM_ALLOWED_URLS` | **3** | Hardcoded same way. Conveniently matches our 3-provider PoC: one URL slot per provider. To support N>3 providers you'd need to fork the lib. |
+| `NUM_REQUEST_URLS` | **1** | Hardcoded in `derive_envelope_hash`. Upstream pins it at 2 (designed for multi-URL fan-out); our local copy drops it to 1 since Primus's `(1 URL → 1 reveal)` unit means real attestations always carry exactly one request. Lifting this would also require multi-request handling in the off-chain `encodePacked` TS parser. |
+| `NUM_ALLOWED_URLS` | generic | Was hardcoded at 3 upstream; now a generic parameter of `match_url_against_allowlist` and the `verify_attestation_hashing` wrapper. The QuoteVerifier example pins it at 3 (one slot per provider). Consumers pick whatever fits their needs. |
 
 ### Our choices
 
@@ -109,18 +109,20 @@ We default to `mpctls` so that the same claim template can be reused for endpoin
 
 ### Why we keep a local copy of the lib (with patches)
 
-Primus's Noir lib (`att_verifier_lib`) lives at https://github.com/primus-labs/zktls-verification-noir under a subdirectory. Their tutorial expects you to either work *inside* that monorepo (each example contract sits beside the lib with `path = "../att_verifier_lib"`) or copy the lib into your project. They never publish git tags, and Nargo's git dependency mechanism requires a `tag` (no `rev` or `branch` accepted) — so importing the lib over git isn't possible without forking and self-tagging.
+Primus's Noir lib lives at https://github.com/primus-labs/zktls-verification-noir under a subdirectory. Their tutorial expects you to either work *inside* that monorepo (each example contract sits beside the lib with `path = "../att_verifier_lib"`) or copy the lib into your project. They never publish git tags, and Nargo's git dependency mechanism requires a `tag` (no `rev` or `branch` accepted) — so importing the lib over git isn't possible without forking and self-tagging.
 
-We keep a local copy at `src/nr/att_verifier_lib/` — based on upstream `main` (`65496b7b99879fc108b68bd7f08296225786a40c`) with the following local divergences, all documented at their call sites:
+We maintain `attestation_verifier` (`src/nr/attestation_verifier/`) as our own first-class lib, originally based on upstream `main` (`65496b7b99879fc108b68bd7f08296225786a40c`), now refactored into composable building blocks and with the following local divergences (all documented at their call sites):
 
 **Patches:**
 1. `starts_with`'s strict `haystack.len() > needle.len()` relaxed to `>=` (so request URL byte-equal to allowed URL passes). Reasoning below.
 2. `sha256_var(..., len as u64)` → `len as u32` because the upstream `Nargo.toml` we bumped from `noir-lang/sha256 v0.2.1` to `v0.3.0` for aztec-nr 4.3.0 compatibility tightened the length arg type. One-character mechanical fix.
 
 **Larger rewrites:**
-3. **`verify_attestation_hashing` now reconstructs `keccak256(envelope)` in-circuit.** Upstream takes `hash` as a witness and verifies ECDSA over it without tying `hash` to the envelope contents (upstream issue [#9](https://github.com/primus-labs/zktls-verification-noir/issues/9)). Our version takes the raw envelope fields, derives the hash via the Primus `encodePacked` byte layout, and binds each content's SHA256 hex to the signed `data` string at a witness-provided offset. Adds the `noir-lang/keccak256` dep.
-4. **`NUM_REQUEST_URLS` dropped from 2 to 1** — see the Hard Constraints table.
-5. **Pedersen-commitment path removed** (`verify_attestation_comm`, `verify_commitment_group`, the Grumpkin imports). Restore from upstream if commitment mode becomes needed.
+3. **`derive_envelope_hash` reconstructs `keccak256(envelope)` in-circuit.** Upstream took `hash` as a witness and verified ECDSA over it without tying `hash` to the envelope contents (upstream issue [#9](https://github.com/primus-labs/zktls-verification-noir/issues/9)). Our version takes the raw envelope fields, derives the hash via Primus's `encodePacked` byte layout, and pairs naturally with `verify_ecdsa_over_hash` so the signed bytes are the same bytes the prover used to derive `data`. Adds the `noir-lang/keccak256` dep.
+4. **Refactored the monolithic `verify_attestation_hashing` into building blocks**: `derive_envelope_hash`, `verify_ecdsa_over_hash`, `match_url_against_allowlist`, `bind_content_hashes`. The original wrapper remains for the canonical composition. Consumers with non-canonical needs (e.g. a single pinned URL prefix without an allow-list) call the building blocks directly.
+5. **`NUM_REQUEST_URLS` dropped from 2 to 1** — see the Hard Constraints table.
+6. **`NUM_ALLOWED_URLS` lifted to a generic** — was hardcoded at 3 upstream.
+7. **Pedersen-commitment path removed** (`verify_attestation_comm`, `verify_commitment_group`, the Grumpkin imports). Restore from upstream if commitment mode becomes needed.
 
 #### The bug we hit
 
@@ -154,7 +156,7 @@ So the patch became the cleanest move.
 
 #### What the patch is
 
-One character. `src/nr/att_verifier_lib/src/lib.nr` line 142:
+One character, inside the `unconstrained fn starts_with` helper in `src/nr/attestation_verifier/src/lib.nr`:
 
 ```diff
 - assert(haystack.len() > needle_length, "haystack shorter than needle");
@@ -165,7 +167,7 @@ One character. `src/nr/att_verifier_lib/src/lib.nr` line 142:
 
 1. **`starts_with` is `unconstrained`.** Unconstrained functions in Noir run as hints during witness generation — their assertions are runtime checks, never circuit constraints. They don't enter the proof.
 
-2. **The actual cryptographic prefix check is constrained, and already handles equal-length inputs.** Look at `verify_sig_and_urls` around line 27:
+2. **The actual cryptographic prefix check is constrained, and already handles equal-length inputs.** Look at `match_url_against_allowlist`:
 
     ```rust
     for j in 0..MAX_URL_LEN {
@@ -280,8 +282,9 @@ The e2e suite is gated by `RUN_E2E=1` so default `yarn test:js` stays cheap and 
 ├── config.json                                 Base Sepolia + Base mainnet RPC config
 └── src/
     ├── nr/                                     Noir source
-    │   ├── att_verifier_lib/                   local copy of primus-labs/zktls-verification-noir (hashing path only)
-    │   └── quote_verifier/                     our contract
+    │   ├── attestation_verifier/              lib: Primus zkTLS verifier building blocks (modified from primus-labs/zktls-verification-noir)
+    │   └── examples/
+    │       └── quote_verifier/                 example consumer: an Aztec contract using the lib
     └── ts/
         ├── attest.ts                           runs Primus pipeline, writes 3 JSONs
         ├── prepare-witness.ts                  rebuilds witness.json from raw.json
