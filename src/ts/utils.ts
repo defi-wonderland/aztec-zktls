@@ -11,7 +11,7 @@ import { QuoteVerifierContract } from "../artifacts/QuoteVerifier.js";
 
 export const NODE_URL = process.env.AZTEC_NODE_URL ?? "http://localhost:8080";
 
-/** Match the `MAX_URL_LEN` global in `quote_verifier/src/main.nr`. */
+/** Match the `MAX_URL_LEN` global in `src/nr/examples/quote_verifier/src/main.nr`. */
 export const MAX_URL_LEN = 96;
 
 /**
