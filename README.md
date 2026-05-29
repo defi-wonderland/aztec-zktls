@@ -107,7 +107,23 @@ Every claim's verifier config (mode, maxes, allowedUrls) was identical anyway �
 
 We default to `mpctls` so that the same claim template can be reused for endpoints that *do* carry tokens. Public ticker endpoints don't benefit from the privacy, and one of them (OKX) rejects the MPC handshake (`WaitPlainClientTimeout`), so individual claims can override to `proxytls`. CLI override: `yarn attest okx symbol=ETH-USDT mode=proxytls`.
 
-### Why we keep a local copy of the lib (with patches)
+### Lib API
+
+`attestation_verifier` exposes four building blocks plus a convenience wrapper.
+
+- **`derive_envelope_hash(envelope_fields...) -> [u8; 32]`** — reconstruct `keccak256(envelope)` byte-for-byte from envelope fields. The output is what the Primus attestor signed; pairing this with `verify_ecdsa_over_hash` is what closes the splice attack from upstream issue #9.
+
+- **`verify_ecdsa_over_hash(pk_x, pk_y, sig, hash)`** — assert an ECDSA-secp256k1 signature is valid for the given hash and public key. The caller is responsible for ensuring `hash` came from a derived (not witnessed) source.
+
+- **`match_url_against_allowlist<MAX_URL_LEN, NUM_ALLOWED_URLS>(request_url, allowed_urls) -> Field`** — find which entry of `allowed_urls` is a byte-prefix of `request_url`, constrain the prefix match, and return the Poseidon2 hash of the matched entry. Reverts if no entry matches. `NUM_ALLOWED_URLS` is generic (upstream hardcoded it at 3).
+
+- **`bind_content_hashes(contents, data, offsets)`** — for each content, compute `sha256(content)` and assert its 64-character lowercase hex appears at `offsets[i]` inside `data`. Requires that `data` came from a signature-bound envelope (see SOUNDNESS note in the function's docstring).
+
+- **`verify_attestation_hashing(...)` → `[Field; 1]`** — convenience wrapper that composes the four building blocks above in the canonical order. Returns the Poseidon2 hash of the matched allowed URL. Most consumers use this directly.
+
+The building blocks exist so consumers with non-canonical compositions don't have to fork. For example, an oracle pinning a single base URL prefix (instead of an allow-list of full URLs) can use `derive_envelope_hash` + `verify_ecdsa_over_hash` + `bind_content_hashes` and do its own prefix check on the request URL — bypassing `match_url_against_allowlist` entirely.
+
+### Local divergences from upstream
 
 Primus's Noir lib lives at https://github.com/primus-labs/zktls-verification-noir under a subdirectory. Their tutorial expects you to either work *inside* that monorepo (each example contract sits beside the lib with `path = "../att_verifier_lib"`) or copy the lib into your project. They never publish git tags, and Nargo's git dependency mechanism requires a `tag` (no `rev` or `branch` accepted) — so importing the lib over git isn't possible without forking and self-tagging.
 
@@ -126,7 +142,7 @@ We maintain `attestation_verifier` (`src/nr/attestation_verifier/`) as our own f
 
 #### The bug we hit
 
-The unconstrained helper `starts_with` (line 142) and its caller `get_allowed_url_index` (line ~165) disagree about whether equal-length inputs are valid:
+The unconstrained helper `starts_with` and its caller `get_allowed_url_index` disagree about whether equal-length inputs are valid:
 
 ```rust
 // caller permits equal length:
