@@ -16,7 +16,7 @@ export const MAX_URL_LEN = 96;
 
 /**
  * Poseidon2 hash of a UTF-8 URL, zero-padded to `maxLen` bytes per byte.
- * Mirrors what `att_verifier_lib::verify_attestation_hashing` computes
+ * Mirrors what `attestation_verifier::verify_attestation_hashing` computes
  * internally over the allowed_urls argument, so the storage hashes we
  * commit at deploy match the matched_url_hashes the circuit returns.
  */
@@ -77,7 +77,7 @@ export type Witness = {
   requestUrls: number[][];
   allowedUrls: number[][];
   plainJsonResponses: number[][];
-  // Envelope fields (see att_verifier_lib::verify_attestation_hashing).
+  // Envelope fields (see attestation_verifier::verify_attestation_hashing).
   recipient: number[];
   requestHmb: number[];
   responseResolves: number[][];

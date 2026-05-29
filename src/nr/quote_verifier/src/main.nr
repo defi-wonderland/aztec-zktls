@@ -13,7 +13,7 @@ use aztec::macros::aztec;
 #[aztec]
 pub contract QuoteVerifier {
     use crate::types::{Envelope, PublicKey};
-    use att_verifier_lib::verify_attestation_hashing;
+    use attestation_verifier::verify_attestation_hashing;
     use aztec::macros::{events::event, functions::{external, initializer}};
     use aztec::macros::storage::storage;
     use aztec::protocol::address::AztecAddress;
@@ -26,15 +26,15 @@ pub contract QuoteVerifier {
     // One field per quote: the price. The (provider, symbol) pair is committed via
     // the URL allow-list - each allowed URL contains the full symbol-bearing URL,
     // byte-identical to the claim's request URL. This relies on a one-character
-    // patch to the local att_verifier_lib (`>` -> `>=` in `starts_with`) so the
+    // patch to the local attestation_verifier (`>` -> `>=` in `starts_with`) so the
     // unconstrained URL-matching helper accepts equal-length inputs; see
-    // `nr/att_verifier_lib/src/lib.nr` for the justification.
+    // `nr/attestation_verifier/src/lib.nr` for the justification.
     global NUM_RESPONSE_RESOLVE: u32 = 1;
-    // Hardcoded by att_verifier_lib's signature.
+    // Hardcoded by attestation_verifier's signature.
     global NUM_REQUEST_URLS: u32 = 1;
     global NUM_ALLOWED_URLS: u32 = 3;
     // Bounds on per-attestation envelope fields used to drive the in-circuit
-    // keccak256(envelope) reconstruction (att_verifier_lib::verify_attestation_hashing).
+    // keccak256(envelope) reconstruction (attestation_verifier::verify_attestation_hashing).
     // Sized to fit real Primus envelopes for our ticker endpoints with headroom.
     //   - HMB: per-request `header + method + body` concat. "GET" + empty header/body = 3 bytes.
     //   - RR:  per-resolve `keyName + parseType + parsePath` concat. "SHA256($.price)json$.price" ~30 bytes.

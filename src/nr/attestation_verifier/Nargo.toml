@@ -1,7 +1,7 @@
 [package]
-name = "att_verifier_lib"
+name = "attestation_verifier"
 type = "lib"
-authors = ["HashCloak"]
+authors = ["Wonderland"]
 
 [dependencies]
 poseidon = { tag = "v0.3.0", git = "https://github.com/noir-lang/poseidon" }

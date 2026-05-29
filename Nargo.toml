@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "src/nr/att_verifier_lib",
+    "src/nr/attestation_verifier",
     "src/nr/quote_verifier",
 ]
 
