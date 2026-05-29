@@ -28,7 +28,7 @@ pub contract QuoteVerifier {
     // byte-identical to the claim's request URL. This relies on a one-character
     // patch to the local attestation_verifier (`>` -> `>=` in `starts_with`) so the
     // unconstrained URL-matching helper accepts equal-length inputs; see
-    // `nr/attestation_verifier/src/lib.nr` for the justification.
+    // `src/nr/attestation_verifier/src/lib.nr` for the justification.
     global NUM_RESPONSE_RESOLVE: u32 = 1;
     // Hardcoded by attestation_verifier's signature.
     global NUM_REQUEST_URLS: u32 = 1;

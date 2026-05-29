@@ -2,7 +2,7 @@
 
 Primus zkTLS attestation verifier — Noir building blocks for proving the validity of a Primus-signed envelope inside a Noir/Aztec circuit.
 
-Modified from [primus-labs/zktls-verification-noir](https://github.com/primus-labs/zktls-verification-noir) (commit `65496b7`). See the root [README](../../../README.md#local-divergences-from-upstream) for the full list of local divergences (the biggest is the in-circuit `keccak256(envelope)` reconstruction that closes upstream [issue #9](https://github.com/primus-labs/zktls-verification-noir/issues/9)).
+Modified from [primus-labs/zktls-verification-noir](https://github.com/primus-labs/zktls-verification-noir) (commit `65496b7`). See [Divergences from upstream](#divergences-from-upstream) below for the full list; the biggest is the in-circuit `keccak256(envelope)` reconstruction that closes upstream [issue #9](https://github.com/primus-labs/zktls-verification-noir/issues/9).
 
 ## Install
 
@@ -102,8 +102,9 @@ let envelope_hash = derive_envelope_hash(
 verify_ecdsa_over_hash(attestor_x, attestor_y, signature, envelope_hash);
 
 // 2. Caller-specific URL check (e.g. byte-equality of the first N bytes
-//    against a pinned `base_url_prefix`). Skipped here for brevity.
-assert_url_starts_with_pinned_prefix(request_url, base_url_prefix);
+//    against a pinned `base_url_prefix`). Implementation is caller-defined;
+//    pseudocode placeholder shown:
+//        assert_url_starts_with_pinned_prefix(request_url, base_url_prefix);
 
 // 3. Bind each content to the now-signature-bound `data` string.
 bind_content_hashes(contents, data, data_hash_offsets);
