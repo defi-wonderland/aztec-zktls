@@ -36,15 +36,7 @@ use sha256::sha256_var;
 /// unit means real attestations always carry exactly one request. The array
 /// shape is preserved for compatibility with the upstream lib and any future
 /// multi-request extension.
-pub fn derive_envelope_hash<
-    let MAX_URL_LEN: u32,
-    let MAX_HMB_LEN: u32,
-    let N: u32,
-    let MAX_RR_LEN: u32,
-    let MAX_DATA_LEN: u32,
-    let MAX_COND_LEN: u32,
-    let MAX_PARAMS_LEN: u32,
->(
+pub fn derive_envelope_hash<let MAX_URL_LEN: u32, let MAX_HMB_LEN: u32, let N: u32, let MAX_RR_LEN: u32, let MAX_DATA_LEN: u32, let MAX_COND_LEN: u32, let MAX_PARAMS_LEN: u32>(
     recipient: [u8; 20],
     request_urls: [BoundedVec<u8, MAX_URL_LEN>; 1],
     request_hmb: BoundedVec<u8, MAX_HMB_LEN>,
@@ -169,11 +161,7 @@ pub fn match_url_against_allowlist<let MAX_URL_LEN: u32, let NUM_ALLOWED_URLS: u
 
     for j in 0..MAX_URL_LEN {
         if j < allowed_url.len() {
-            assert_eq(
-                request_url.storage()[j],
-                allowed_url.storage()[j],
-                "URL check failed",
-            );
+            assert_eq(request_url.storage()[j], allowed_url.storage()[j], "URL check failed");
         }
     }
 
@@ -236,17 +224,7 @@ pub fn bind_content_hashes<let N: u32, let MAX_CONTENT_LEN: u32, let MAX_DATA_LE
 /// hit.
 ///
 /// `NUM_ALLOWED_URLS` is generic - the upstream lib hardcoded it at 3.
-pub fn verify_attestation_hashing<
-    let MAX_URL_LEN: u32,
-    let NUM_ALLOWED_URLS: u32,
-    let N: u32,
-    let MAX_CONTENT_LEN: u32,
-    let MAX_HMB_LEN: u32,
-    let MAX_RR_LEN: u32,
-    let MAX_DATA_LEN: u32,
-    let MAX_COND_LEN: u32,
-    let MAX_PARAMS_LEN: u32,
->(
+pub fn verify_attestation_hashing<let MAX_URL_LEN: u32, let NUM_ALLOWED_URLS: u32, let N: u32, let MAX_CONTENT_LEN: u32, let MAX_HMB_LEN: u32, let MAX_RR_LEN: u32, let MAX_DATA_LEN: u32, let MAX_COND_LEN: u32, let MAX_PARAMS_LEN: u32>(
     public_key_x: [u8; 32],
     public_key_y: [u8; 32],
     signature: [u8; 64],
