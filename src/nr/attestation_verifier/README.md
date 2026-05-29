@@ -15,7 +15,7 @@ attestation_verifier = { git = "https://github.com/defi-wonderland/aztec-zktls-p
 
 If you're consuming the lib from another crate inside *this* workspace, use a path dep instead — the relative path depends on where your `Nargo.toml` sits. The bundled example at `src/nr/examples/quote_verifier/` uses `path = "../../attestation_verifier"`.
 
-The lib pulls `noir-lang/sha256@v0.3.0`, `noir-lang/keccak256@v0.1.3`, and `noir-lang/poseidon@v0.3.0` as transitive deps.
+The lib depends on `aztec-nr@v4.3.0` (for `aztec::protocol::hash::poseidon2_hash`) and pulls `noir-lang/sha256@v0.3.0` + `noir-lang/keccak256@v0.1.3` as direct deps. This makes the lib Aztec-only — it can't be used in standalone Noir circuits outside an Aztec contract context.
 
 ## API
 

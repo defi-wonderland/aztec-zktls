@@ -5,8 +5,8 @@
 //! on each local divergence (the in-circuit `keccak256(envelope)`
 //! reconstruction that closes upstream issue #9 is the main soundness fix).
 
+use aztec::protocol::hash::poseidon2_hash;
 use keccak256::keccak256;
-use poseidon::poseidon2::Poseidon2;
 use sha256::sha256_var;
 
 // =============================================================================
@@ -171,7 +171,7 @@ pub fn match_url_against_allowlist<let MAX_URL_LEN: u32, let NUM_ALLOWED_URLS: u
             hash_input[j] = allowed_url.storage()[j] as Field;
         }
     }
-    Poseidon2::hash(hash_input, MAX_URL_LEN)
+    poseidon2_hash(hash_input)
 }
 
 /// For each content, compute `sha256(content)` and assert its 64-char lowercase
