@@ -8,10 +8,12 @@ Modified from [primus-labs/zktls-verification-noir](https://github.com/primus-la
 
 ```toml
 [dependencies]
-attestation_verifier = { path = "../../attestation_verifier" }
+attestation_verifier = { git = "https://github.com/defi-wonderland/aztec-zktls-poc", tag = "vX.Y.Z", directory = "src/nr/attestation_verifier" }
 ```
 
-Inside a workspace, point `path` at the relative location of this directory. Once tagged on GitHub, a git-dep with `tag = "..."` works too.
+(Repo will be renamed to `aztec-zktls` once it leaves PoC status — update the URL accordingly.)
+
+If you're consuming the lib from another crate inside *this* workspace, use a path dep instead — the relative path depends on where your `Nargo.toml` sits. The bundled example at `src/nr/examples/quote_verifier/` uses `path = "../../attestation_verifier"`.
 
 The lib pulls `noir-lang/sha256@v0.3.0`, `noir-lang/keccak256@v0.1.3`, and `noir-lang/poseidon@v0.3.0` as transitive deps.
 
