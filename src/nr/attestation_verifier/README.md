@@ -137,8 +137,90 @@ If you call the building blocks directly, the safe order is:
 
 Skipping or reordering this gives you a function that compiles but proves nothing. The wrapper enforces this composition for you.
 
+## Trust model: closing the splice attack
+
+Upstream's `verify_attestation_hashing` took `hash` as a function input — the circuit verified ECDSA over it but never tied it to the envelope contents. A prover could pair a real Primus-signed `hash` with envelope fields they invented and pass both checks independently. Upstream issue [#9](https://github.com/primus-labs/zktls-verification-noir/issues/9) flags this.
+
+This lib closes the gap by reconstructing `keccak256(envelope)` in-circuit from the witnessed envelope fields and verifying ECDSA over the *derived* hash. There is no opaque `hash` witness to splice with anymore — `derived_hash` is constraint-equal to `keccak256(env_bytes)`, and ECDSA forces that equal to the real signed hash. Any prover supplying envelope fields different from what the attestor signed fails ECDSA at step 2 of the canonical composition.
+
+The end-to-end chain a consumer gets:
+
+```
+signature ⇒ derived envelope hash ⇒ specific envelope bytes ⇒ specific data string ⇒ specific SHA256 hex bytes ⇒ original content
+```
+
+Every ⇒ is a circuit constraint. The remaining trust assumption sits with the attestor itself (it signs only what it actually observed over the wire) — zkTLS as an oracle with a small trusted set, not trustless TLS.
+
+## Divergences from upstream
+
+Primus's Noir lib lives at <https://github.com/primus-labs/zktls-verification-noir> as a subdirectory of a monorepo. They never publish git tags, and Nargo's git-dep mechanism requires a `tag` (no `rev` or `branch`) — so importing the lib over git isn't possible without forking and self-tagging.
+
+This lib is based on upstream `main` at commit `65496b7b99879fc108b68bd7f08296225786a40c` with the following local divergences. All are documented inline at their call sites.
+
+**Patches:**
+
+1. `starts_with`'s strict `haystack.len() > needle.len()` relaxed to `>=` so a request URL byte-equal to an allowed URL passes. See [the patch in detail](#the-starts_with-patch) below.
+2. `sha256_var(..., len as u64)` → `len as u32` because `noir-lang/sha256` v0.3.0 (aztec-nr 4.3.0 compatible) tightened the length-arg type. One-character mechanical fix.
+
+**Larger rewrites:**
+
+3. **`derive_envelope_hash` reconstructs `keccak256(envelope)` in-circuit.** Closes upstream issue [#9](https://github.com/primus-labs/zktls-verification-noir/issues/9) — see [Trust model](#trust-model-closing-the-splice-attack) above. Adds the `noir-lang/keccak256` dep.
+4. **Monolithic verifier split into building blocks** — `derive_envelope_hash`, `verify_ecdsa_over_hash`, `match_url_against_allowlist`, `bind_content_hashes`. The original `verify_attestation_hashing` remains as a canonical-order wrapper. Consumers with non-canonical needs (e.g. a single pinned URL prefix, no allow-list) call the building blocks directly.
+5. **`NUM_REQUEST_URLS` dropped from 2 to 1.** Primus's protocol unit is `(1 URL → 1 reveal)` — see the multi-resolve discussion in the [examples README](../examples/README.md#dont-attest-multiple-fields-from-the-same-url-structural-limit-not-a-bug). Real attestations always carry exactly one request URL; lifting back to 2+ would also require multi-request handling in the off-chain `encodePacked` parser.
+6. **`NUM_ALLOWED_URLS` lifted to a generic.** Was hardcoded at 3 upstream; now a generic parameter of `match_url_against_allowlist` and the wrapper. Consumers pick whatever fits.
+7. **Pedersen-commitment path removed** (`verify_attestation_comm`, `verify_commitment_group`, the Grumpkin imports). The commitment-mode is useful when an attested field exceeds a single SHA256 block; restore from upstream if you need it.
+
+## The `starts_with` patch
+
+Upstream's unconstrained `starts_with` helper and its caller `get_allowed_url_index` disagree about whether equal-length inputs are valid:
+
+```rust
+// caller permits equal length:
+if (allowed_url.len() <= request_url.len()) {
+    let result = starts_with(request_url, allowed_url);
+}
+
+// callee rejects equal length:
+assert(haystack.len() > needle_length, "haystack shorter than needle");  // strict >
+```
+
+You hit this whenever the request URL is byte-identical to an entry in `allowedUrls` — a natural pattern when the allow-list pins full URLs (so the URL match itself commits to specific query parameters). The QuoteVerifier example uses exactly this pattern; see the [examples README](../examples/README.md#why-the-allowed-urls-contain-the-ticker-symbol) for the consumer-side context, including [the alternatives we tried off-circuit](../examples/README.md#why-the-patch-instead-of-a-workaround) before settling on the patch.
+
+### What the patch is
+
+One character, inside the `unconstrained fn starts_with` helper:
+
+```diff
+- assert(haystack.len() > needle_length, "haystack shorter than needle");
++ assert(haystack.len() >= needle_length, "haystack shorter than needle");
+```
+
+### Why it's safe
+
+1. **`starts_with` is `unconstrained`.** Unconstrained functions run as hints during witness generation — their assertions are runtime checks, never circuit constraints. They don't enter the proof.
+
+2. **The actual cryptographic prefix check is constrained, and already handles equal-length inputs.** Inside `match_url_against_allowlist`:
+
+    ```rust
+    for j in 0..MAX_URL_LEN {
+        if j < allowed_url.len() {
+            assert_eq(request_urls[i].storage()[j], allowed_url.storage()[j], "URL check failed");
+        }
+    }
+    ```
+
+    The loop iterates `j < allowed_url.len()` positions, both within bounds, and asserts byte equality. For `request == allowed` (equal length), it proves prefix-which-equals-equality — correctly.
+
+3. **The loop body of `starts_with` itself agrees with `>=`.** Its `for j in 0..needle_length` requires `haystack.get(j)` to succeed for `j` up to `needle_length - 1`, which needs `haystack.len() >= needle_length`. The strict `>` was an off-by-one that disagreed with both the loop body's actual safety boundary and the caller's `<=` gate.
+
+So loosening the guard from `>` to `>=` doesn't change what the circuit *proves*, doesn't expose any byte the constrained path didn't already see, and aligns three places in the file that were inconsistent.
+
+### Proper fix
+
+Open an upstream PR at `primus-labs/zktls-verification-noir` flipping that one operator. Once it merges and Primus tags a release that Nargo can `tag`-import, this local copy can be deleted in favor of a git-dep, ending the local divergence.
+
 ## See also
 
-- [Root README](../../../README.md) — full PoC context, providers, design decisions, divergences from upstream.
-- Example consumer: [`src/nr/examples/quote_verifier/`](../examples/quote_verifier/) — an Aztec contract that uses the wrapper.
+- [Root README](../../../README.md) — setup, scripts, repo layout.
+- [Examples README](../examples/README.md) — consumer-side design notes for the QuoteVerifier example.
 - Upstream: [primus-labs/zktls-verification-noir](https://github.com/primus-labs/zktls-verification-noir).
