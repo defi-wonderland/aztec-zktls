@@ -6,7 +6,7 @@ This directory holds example consumers of the [`attestation_verifier`](../attest
 
 | Crate | What it shows | Provider used |
 |---|---|---|
-| [`quote_verifier/`](./quote_verifier/) | Spot-price attestation: `verify_attestation` (cryptography) + contract-side URL allow-list via `Map<Field, PublicImmutable<bool>>`. | Binance / OKX / Coinbase ticker endpoints |
+| [`quote_verifier/`](./quote_verifier/) | Spot-price attestation: `verify_attestation` (cryptography) + contract-side URL allow-list via `Map<Field, PublicImmutable<bool>>` + in-circuit decimal-string price normalization recorded into `Map<Field, PublicImmutable<Quote>>` keyed by `envelope.timestamp`. | Binance / OKX / Coinbase ticker endpoints |
 
 ## Running an example
 
@@ -63,6 +63,46 @@ The constructor takes `[Field; 3]` (one hash per provider URL) and initializes e
 
 The trade-off: every request URL must be byte-equal to a pre-known allowed URL. Any extra query parameter (`&recv_window=`, `&otherthing=`) the prover appends produces a hash miss → revert. That's the security property we want here — see the lib README's [discussion of the soundness footguns](../attestation_verifier/README.md#divergences-from-upstream) that the prefix-match design (which we removed) had.
 
+## Quote storage and price normalization
+
+Every successful `verify()` initializes one slot in `historical_quotes`:
+
+```noir
+historical_quotes: Map<Field, PublicImmutable<Quote, Context>, Context>,
+```
+
+`Quote` is `{ price: u128, timestamp: u64 }`. The slot is keyed by the attestor-signed `envelope.timestamp` (cast to `Field`). `PublicImmutable` writes from public context take effect immediately, so the entry is readable from both public and private context as soon as the `verify()` tx is included — **no delay**. Reading a never-written timestamp slot reverts with "Trying to read from uninitialized PublicImmutable".
+
+Public consumers (and tests) use the `get_quote_at(timestamp: u64) -> pub Quote` view function. Private consumers do `self.storage.historical_quotes.at(t).read()` directly.
+
+### Why historical-only, no "latest_quote" view
+
+An earlier draft included a `latest_quote: DelayedPublicMutable<Quote, QUOTE_DELAY>` slot that updated on every `verify()`. We dropped it: `DelayedPublicMutable`'s delay applies to *all* readers (public and private), so a "latest" view backed by it was always at least `QUOTE_DELAY` seconds stale, which defeated the point of having a fresh-price view. The other primitive options each made the trade-off worse:
+
+- `PublicMutable<Quote>` — public-readable only; loses private-readability entirely.
+- Two slots (PublicMutable + DelayedPublicMutable) — doubles writes for marginal gain.
+
+The historical map is strictly more useful: every entry is immediate, both contexts can read it, and consumers wanting "the most recent" track timestamps off-chain (event log, indexer, etc.) and query the specific slot.
+
+### Why 8-decimal fixed-point
+
+The three providers emit prices as decimal strings with varying precision: Binance 8 decimals (`"1234.50000000"`), Coinbase 2 (`"1234.50"`), OKX variable. To make `Quote.price` a single comparable number, the contract normalizes everything to a `u128` mantissa with 8-decimal precision (`1234.5 → 123450000000`).
+
+8 was picked because it matches Binance natively (zero scale-up cost for the most precise feed), is the Chainlink convention, and easily fits in `u128` for any realistic price. The constant lives at `global PRICE_DECIMALS: u32 = 8` in the contract.
+
+### The in-circuit parser
+
+`parse_decimal_price(bytes: BoundedVec<u8, MAX_PLAINTEXT_LEN>) -> u128` is a `#[contract_library_method]` that:
+
+1. Loops over the (signature-bound) content bytes.
+2. Asserts each byte is either an ASCII digit (`0x30..=0x39`) or a single `.` (`0x2e`).
+3. Builds the mantissa as `value = value * 10 + digit`.
+4. Tracks how many digits appeared after the dot.
+5. Asserts `decimals_seen <= PRICE_DECIMALS` (more would mean precision loss).
+6. Scales the mantissa up by `10 ** (PRICE_DECIMALS - decimals_seen)` using a compile-time-bounded loop.
+
+Reverts on: multiple decimal points, non-digit/non-dot bytes, or more than 8 fractional digits. The input must be the signature-bound `contents[i]` from `verify_attestation` (otherwise content binding wouldn't have happened and the bytes are not trusted).
+
 ## Data-model choices
 
 The lib's [generic parameters](../attestation_verifier/README.md#generic-parameters-reference) are picked here to fit ticker-price attestations. Each unit costs circuit gates per call site, so lower-is-cheaper.
@@ -86,7 +126,7 @@ The lib's `bind_content_hashes` only accepts the SHA256 shape — its check is `
 
 ## Why the allowed URLs contain the ticker symbol
 
-`allowed_url_hashes` is a set-membership check on the request URL inside the circuit. If the allow-list were just `.../ticker/price` (no `?symbol=...`), then ANY symbol would attest successfully and the contract would have no cryptographic commitment to which asset the price represents. The on-chain event would say *"some Binance price"*.
+`allowed_url_hashes` is a set-membership check on the request URL inside the circuit. If the allow-list were just `.../ticker/price` (no `?symbol=...`), then ANY symbol would attest successfully and the contract would have no cryptographic commitment to which asset the price represents. The recorded quote would say *"some Binance price"* with no way to tell ETHUSDT from BTCUSDT.
 
 By baking `?symbol=ETHUSDT` (and equivalents) into the allow-list URLs, the URL match itself proves *"this is an ETH price from Binance"* — at zero extra circuit cost (one hash + one map read). The trade-off is granularity: with three slots, we have exactly one slot per provider for one symbol. Adding a second symbol means redeploying (or scaling up `NUM_ALLOWED_URLS_AT_DEPLOY` to fit more slots).
 
@@ -153,9 +193,31 @@ The QuoteVerifier contract verifies, end-to-end, **all inside the private circui
 2. **ECDSA signature** over the **derived** envelope hash, using the storage-pinned attestor pubkey. There is no witnessed `hash` to splice — the ECDSA check IS the binding from "signature" to "these specific witnessed envelope bytes." (Lib: `verify_ecdsa_over_hash`, invoked via `verify_attestation`; see also [splice attack closure](../attestation_verifier/README.md#trust-model-closing-the-splice-attack).)
 3. **SHA256 content binding**: for each attested field, `sha256(content)` is computed in-circuit and asserted to appear (as 64-char hex) at a witness-provided offset inside the now-signature-bound `data` string. (Lib: `bind_content_hashes`, invoked via `verify_attestation`.)
 4. **URL allow-list check** (contract policy, **not** lib): the contract hashes the signature-bound `envelope.request_url` (with explicit zero-padding to `MAX_URL_LEN`) and reads the corresponding slot in `allowed_url_hashes`. An uninitialized slot reverts; otherwise the URL is in the allow-list. Exact byte equality is structural — different URL bytes produce different Poseidon hashes.
+5. **Price parse + storage write**: the signature-bound content bytes are parsed in-circuit into a `u128` mantissa scaled to 8 decimals (reverts on non-digit bytes, multiple dots, or more than 8 fractional digits). An enqueued public call initializes `historical_quotes[envelope.timestamp]` with the `Quote { price, timestamp }`. Duplicate-timestamp submissions are silently skipped via `is_initialized()`.
 
-The chain: `signature ⇒ derived envelope hash ⇒ specific envelope bytes ⇒ specific data string ⇒ specific SHA256 hex bytes ⇒ original content`, **plus** `envelope.request_url ⇒ specific Poseidon hash ⇒ allow-list membership`. Each ⇒ is a circuit constraint.
+The chain: `signature ⇒ derived envelope hash ⇒ specific envelope bytes ⇒ specific data string ⇒ specific SHA256 hex bytes ⇒ original content ⇒ parsed u128 price`, **plus** `envelope.request_url ⇒ specific Poseidon hash ⇒ allow-list membership`. Each ⇒ is a circuit constraint.
 
 The attestor pubkey is `PublicImmutable` and the URL allow-list is a `Map<Field, PublicImmutable<bool>>` — both are pinned at deploy with no admin functions to rotate either. Changes = redeploy. Justified for a PoC; production use would want an admin path with explicit governance.
 
 With the attestor pinned, trust bottoms out at: **the attestor node behaves honestly** (Primus's published binary is honest, the Phala TEE prevents tampering) and **the HTTPS endpoint itself isn't lying**. This is zkTLS as an oracle with a small trusted set, not trustless TLS.
+
+## Known limitations
+
+**1. No freshness enforcement on `envelope.timestamp` — replays are possible.**
+
+The contract accepts an attestation regardless of how old `envelope.timestamp` is. A submitter who has held onto a saved Primus proof from days ago can submit it now and have the contract record a stale price at that historical timestamp. The historical entry itself is sound (the price *was* attested at that time), but a downstream consumer reading `get_quote_at(t)` for a specific `t` cannot tell whether `t` was just submitted or was submitted weeks ago.
+
+Defenses a production version would add:
+
+- **Reject ancient envelopes** in `verify()` via `assert(envelope.timestamp / 1000 + MAX_AGE >= self.context.timestamp())`. Anchor-block-relative.
+- **Monotonicity in `record_quote`** if a "latest" view is ever reintroduced.
+
+For PoC purposes, **consumers should treat `Quote.timestamp` as the trustworthy "when this was observed" signal and apply their own freshness policy** when reading via `get_quote_at(t)`. Specifically, never read a price and trust it as "current" without checking `block.timestamp - quote.timestamp` against your own staleness threshold.
+
+**2. The attestor pubkey and URL allow-list are immutable.**
+
+There is no admin path to rotate the attestor pubkey or amend the URL allow-list. If Primus rotates their attestor key, this contract stops being able to verify new attestations — a redeploy is required. Similarly for switching the supported asset symbol (ETH → BTC) or adding a fourth provider. Fine for a PoC; a real deployment would want a delayed-mutable admin path with explicit governance.
+
+**3. `verify()` has no replay-protection at the `(attestor, signature)` level.**
+
+A given signature can be re-submitted any number of times. The `is_initialized()` guard on `historical_quotes[timestamp]` makes the second submission a no-op at the storage layer, but the verification still runs (and costs gas). If you wanted to charge fees per attestation or prevent gas wastage from re-submissions, you'd add a nullifier on the signature.
