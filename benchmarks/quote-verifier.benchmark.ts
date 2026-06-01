@@ -90,7 +90,6 @@ export default class QuoteVerifierBenchmark extends Benchmark {
           .withWallet(wallet)
           .methods.verify(
             witness.signature,
-            witness.allowedUrls,
             envelope,
             witness.plainJsonResponses,
             witness.dataHashOffsets,

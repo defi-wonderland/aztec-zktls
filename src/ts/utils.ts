@@ -165,7 +165,6 @@ export async function deployAndVerify(
   const { receipt } = await contract.methods
     .verify(
       witness.signature,
-      witness.allowedUrls,
       envelope,
       witness.plainJsonResponses,
       witness.dataHashOffsets,
