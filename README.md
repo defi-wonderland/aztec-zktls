@@ -7,7 +7,7 @@ exchange ticker URL → Primus attestor (MPC-TLS or proxy-TLS) → signed envelo
         → off-chain Noir witness prep → Aztec contract verify → on-chain event
 ```
 
-The Aztec contract verifies an ECDSA secp256k1 signature over the envelope and a SHA256 binding to the attested price plaintext, then emits a `QuoteVerified` event.
+The Aztec contract verifies an ECDSA secp256k1 signature over the envelope and a SHA256 binding to the attested price plaintext, then records the normalized price into on-chain storage (readable from both public and private contracts).
 
 This README covers prerequisites, setup, the available scripts, and the repo layout. For the *why* behind the design:
 
@@ -76,7 +76,7 @@ Defaults to the committed fixture at `src/ts/fixtures/binance-ETHUSDT.witness.js
 4. extracts the attestor's secp256k1 pubkey from `witness.publicKeyX/Y` (the same key Primus signed with)
 5. deploys `QuoteVerifier` with the 3 URL hashes + the attestor pubkey (both `PublicImmutable`)
 6. calls `verify(...)` with the witness
-7. asserts the receipt is successful **and** queries the chain for the emitted `QuoteVerified` event
+7. asserts the receipt is successful **and** calls `get_latest_quote()` to read the recorded `Quote { price, timestamp }` back from storage
 
 Because the storage hashes are the same for every provider's witness (they all reference the same shared allow-list), one deployed contract instance verifies attestations from any of the 3 providers.
 

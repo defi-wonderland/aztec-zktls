@@ -12,7 +12,7 @@ import {
   findLatestWitness,
   loadWitness,
   deployAndVerify,
-  fetchQuoteVerifiedEvents,
+  readLatestQuote,
 } from "./utils.js";
 
 // Live end-to-end: spawn `yarn attest` against Primus DVC (real network call,
@@ -118,15 +118,18 @@ describe("QuoteVerifier E2E (live Primus attestation)", () => {
     expect(["proposed", "proven", "checkpointed"]).toContain(receipt.status);
     expect(receipt.blockNumber).toBeGreaterThan(0);
 
-    const events = await fetchQuoteVerifiedEvents(contract, receipt.txHash);
-    console.log(`${tag} QuoteVerified events emitted: ${events.length}`);
-    expect(events.length).toBeGreaterThan(0);
-    expect(events[0]!.event.provider_url_hash).toBeTypeOf("bigint");
+    const expectedTimestamp = BigInt(w.timestamp);
+    const quote = await readLatestQuote(contract, account);
+    console.log(
+      `${tag} latest_quote: price=${quote.price} timestamp=${quote.timestamp}`,
+    );
+    expect(quote.price).toBeGreaterThan(0n);
+    expect(quote.timestamp).toBe(expectedTimestamp);
   }
 
   for (const c of CASES) {
     it.skipIf(!RUN_E2E)(
-      `${c.label}: fetches fresh attestation, deploys, verifies, emits QuoteVerified`,
+      `${c.label}: fetches fresh attestation, deploys, verifies, records quote`,
       async () => {
         await runE2E(c);
       },

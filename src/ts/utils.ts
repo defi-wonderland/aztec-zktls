@@ -2,8 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { Barretenberg } from "@aztec/bb.js";
 import { Fr } from "@aztec/aztec.js/fields";
-import { createAztecNodeClient } from "@aztec/aztec.js/node";
-import { getPublicEvents } from "@aztec/aztec.js/events";
 import type { EmbeddedWallet } from "@aztec/wallets/embedded";
 import type { AccountManager } from "@aztec/aztec.js/wallet";
 import type { TxHash } from "@aztec/stdlib/tx";
@@ -183,20 +181,20 @@ export async function deployAndVerify(
 }
 
 /**
- * Fetch the QuoteVerified events emitted by a transaction. Returns the parsed
- * event records so the test can assert presence and contents.
+ * Read the contract's `latest_quote` via the public view function. After a
+ * successful `verify()`, the call enqueues a scheduled write to the
+ * DelayedPublicMutable; the value is observable from public context
+ * immediately (the QUOTE_DELAY only affects private readers).
  */
-export async function fetchQuoteVerifiedEvents(
+export async function readLatestQuote(
   contract: QuoteVerifierContract,
-  txHash: TxHash,
-): Promise<Array<{ event: { sender: unknown; provider_url_hash: bigint } }>> {
-  const node = createAztecNodeClient(NODE_URL);
-  const { events } = await getPublicEvents<{
-    sender: unknown;
-    provider_url_hash: bigint;
-  }>(node, QuoteVerifierContract.events.QuoteVerified, {
-    txHash,
-    contractAddress: contract.address,
-  });
-  return events;
+  caller: AccountManager,
+): Promise<{ price: bigint; timestamp: bigint }> {
+  const q = (await contract.methods
+    .get_latest_quote()
+    .simulate({ from: caller.address })) as unknown as {
+    price: bigint;
+    timestamp: bigint;
+  };
+  return q;
 }

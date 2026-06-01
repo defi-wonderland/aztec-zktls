@@ -10,7 +10,7 @@ import {
   findLatestWitness,
   loadWitness,
   deployAndVerify,
-  fetchQuoteVerifiedEvents,
+  readLatestQuote,
 } from "./utils.js";
 
 // Default: load the committed fixture so this suite is fully offline.
@@ -45,7 +45,7 @@ describe("QuoteVerifier (cached witness)", () => {
     await bb?.destroy();
   });
 
-  it("deploys, verifies, and emits QuoteVerified", async () => {
+  it("deploys, verifies, and records the latest quote", async () => {
     const witnessPath =
       WITNESS_FILE ??
       (WITNESS_PROVIDER ? findLatestWitness(WITNESS_PROVIDER) : FIXTURE_PATH);
@@ -64,9 +64,14 @@ describe("QuoteVerifier (cached witness)", () => {
     expect(["proposed", "proven", "checkpointed"]).toContain(receipt.status);
     expect(receipt.blockNumber).toBeGreaterThan(0);
 
-    const events = await fetchQuoteVerifiedEvents(contract, receipt.txHash);
-    console.log(`[test] QuoteVerified events emitted: ${events.length}`);
-    expect(events.length).toBeGreaterThan(0);
-    expect(events[0]!.event.provider_url_hash).toBeTypeOf("bigint");
+    // The witness carries `envelope.timestamp` as the attestor-signed unix
+    // timestamp; the contract records it alongside the normalized price.
+    const expectedTimestamp = BigInt(w.timestamp);
+    const quote = await readLatestQuote(contract, account);
+    console.log(
+      `[test] latest_quote: price=${quote.price} timestamp=${quote.timestamp}`,
+    );
+    expect(quote.price).toBeGreaterThan(0n);
+    expect(quote.timestamp).toBe(expectedTimestamp);
   }, 600_000);
 });
