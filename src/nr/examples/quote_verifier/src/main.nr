@@ -197,6 +197,7 @@ pub contract QuoteVerifier {
     fn parse_decimal_price(bytes: BoundedVec<u8, MAX_PLAINTEXT_LEN>) -> u128 {
         let mut value: u128 = 0;
         let mut decimals_seen: u32 = 0;
+        let mut digits_seen: u32 = 0;
         let mut seen_dot: bool = false;
         for i in 0..MAX_PLAINTEXT_LEN {
             if i < bytes.len() {
@@ -208,12 +209,16 @@ pub contract QuoteVerifier {
                 } else {
                     assert((b >= 0x30) & (b <= 0x39), "non-digit byte in price");
                     value = value * 10 + ((b - 0x30) as u128);
+                    digits_seen += 1;
                     if seen_dot {
                         decimals_seen += 1;
                     }
                 }
             }
         }
+        // Reject malformed inputs like "." or empty content that would otherwise
+        // pass through with value = 0.
+        assert(digits_seen > 0, "price must contain at least one digit");
         assert(decimals_seen <= PRICE_DECIMALS, "price has more decimals than PRICE_DECIMALS");
         let scale_up = PRICE_DECIMALS - decimals_seen;
         // Loop up to PRICE_DECIMALS (compile-time bound); multiply only the first
