@@ -45,7 +45,7 @@ describe("QuoteVerifier (cached witness)", () => {
     await bb?.destroy();
   });
 
-  it("deploys, verifies, and records the latest quote", async () => {
+  it("deploys, verifies, and records the quote", async () => {
     const witnessPath =
       WITNESS_FILE ??
       (WITNESS_PROVIDER ? findLatestWitness(WITNESS_PROVIDER) : FIXTURE_PATH);

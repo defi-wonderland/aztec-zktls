@@ -12,11 +12,13 @@ use aztec::macros::aztec;
  * as a map keyed by `poseidon2_hash(zero-padded URL bytes)`; the URL check is
  * exact byte equality (different URL bytes => different hash => not in map).
  *
- * Storage shape: `latest_quote` is a `DelayedPublicMutable<Quote>` (writable
- * from public via enqueued call, readable from both public and private with a
- * delay). `historical_quotes` is a `Map<Field, PublicImmutable<Quote>>` keyed
- * by the attestor-signed `envelope.timestamp`; each slot is initialized once
- * and readable from both contexts (no delay, since immutable).
+ * Storage shape: every verified attestation creates an immutable entry in
+ * `historical_quotes`, keyed by the attestor-signed `envelope.timestamp`.
+ * Entries are readable from both public and private context with no delay.
+ * There is intentionally no "latest" view - consumers wanting the most
+ * recent quote should track timestamps off-chain (indexer / event log) and
+ * query the specific historical slot. This avoids the staleness/privacy
+ * trade-off a DelayedPublicMutable-based latest view would force.
  *
  * Both URL allow-list and attestor pubkey are immutable; redeploy to change.
  */
@@ -27,7 +29,7 @@ pub contract QuoteVerifier {
     use aztec::{
         macros::{functions::{external, initializer, only_self, view}, storage::storage},
         protocol::hash::poseidon2_hash,
-        state_vars::{DelayedPublicMutable, Map, PublicImmutable},
+        state_vars::{Map, PublicImmutable},
     };
 
     // Ticker URLs across Binance/OKX/Coinbase fit in 96 bytes after the query string.
@@ -60,13 +62,6 @@ pub contract QuoteVerifier {
     // Canonical decimal precision for stored prices (matches Binance native).
     global PRICE_DECIMALS: u32 = 8;
 
-    // DelayedPublicMutable's privacy guarantees scale with this delay. 60s is
-    // the PoC floor: short enough to show fresh prices in demos, long enough
-    // that *some* prover hardware can prove and include a tx in time. For prod
-    // use, bump to several hours (or MAX_TX_LIFETIME = 1 day) to maximize the
-    // reader privacy set. See examples README for the trade-off discussion.
-    global QUOTE_DELAY: u64 = 60;
-
     #[storage]
     struct Storage<Context> {
         // Allow-list of permitted request URLs, keyed by the Poseidon2 hash of
@@ -77,13 +72,11 @@ pub contract QuoteVerifier {
         allowed_url_hashes: Map<Field, PublicImmutable<bool, Context>, Context>,
         // The single attestor whose signatures we accept. Stored as a packed PublicKey (4 Fields).
         allowed_attestor: PublicImmutable<PublicKey, Context>,
-        // The most recent successfully-verified quote. Reads from private
-        // context are subject to QUOTE_DELAY. Reads of a never-written slot
-        // return the default Quote { price: 0, timestamp: 0 }.
-        latest_quote: DelayedPublicMutable<Quote, QUOTE_DELAY, Context>,
         // Per-attestation historical record, keyed by envelope.timestamp.
-        // Initialized once per successful verify(); reverts on duplicate
-        // timestamp init via `is_initialized()` guard in `record_quote`.
+        // Each slot is initialized once and is immediately readable from
+        // both public and private context (PublicImmutable has no delay).
+        // Duplicate-timestamp submissions are silently skipped via the
+        // is_initialized() guard in record_quote.
         historical_quotes: Map<Field, PublicImmutable<Quote, Context>, Context>,
     }
 
@@ -107,9 +100,8 @@ pub contract QuoteVerifier {
     /// URL allow-list check is this contract's policy: hash the request URL
     /// from the verified envelope and require its hash to be in storage.
     ///
-    /// On success, enqueues a public call to `record_quote` which writes
-    /// to both `latest_quote` (scheduled change with QUOTE_DELAY) and
-    /// `historical_quotes` (immutable, keyed by envelope.timestamp).
+    /// On success, enqueues a public call to `record_quote` which initializes
+    /// the `historical_quotes` slot keyed by `envelope.timestamp`.
     #[external("private")]
     fn verify(
         signature: [u8; 64],
@@ -169,32 +161,16 @@ pub contract QuoteVerifier {
     /// (via `enqueue_self`); the `only_self` guard prevents anyone from
     /// stamping unverified quotes through this entry point.
     ///
-    /// Writes:
-    ///   - `latest_quote.schedule_value_change(...)` (delayed write, takes
-    ///     effect after QUOTE_DELAY for private readers).
-    ///   - `historical_quotes[timestamp].initialize(...)` only if that
-    ///     timestamp slot was never written before. Duplicate timestamps from
-    ///     replayed witnesses are silently skipped (the latest_quote still
-    ///     gets refreshed, just no new historical entry).
+    /// Writes `historical_quotes[timestamp].initialize(...)` only if that
+    /// timestamp slot was never written before. Duplicate timestamps from
+    /// replayed witnesses are silently skipped.
     #[external("public")]
     #[only_self]
     fn record_quote(price: u128, timestamp: u64) {
-        let q = Quote { price, timestamp };
-        self.storage.latest_quote.schedule_value_change(q);
-
         let slot = self.storage.historical_quotes.at(timestamp as Field);
         if !slot.is_initialized() {
-            slot.initialize(q);
+            slot.initialize(Quote { price, timestamp });
         }
-    }
-
-    /// Returns the current value of `latest_quote` as seen by a public reader.
-    /// Private readers should use the storage-level read directly so the
-    /// expiration-timestamp constraint is set correctly.
-    #[external("public")]
-    #[view]
-    fn get_latest_quote() -> pub Quote {
-        self.storage.latest_quote.get_current_value()
     }
 
     /// Returns the historical quote at `timestamp`. Reverts if no quote was
