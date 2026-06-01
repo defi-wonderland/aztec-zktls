@@ -151,9 +151,9 @@ pub contract QuoteVerifier {
         // PRICE_DECIMALS precision.
         let price = parse_decimal_price(contents[0]);
 
-        // Write the quote to public storage via enqueued public call. Both
-        // latest_quote (scheduled change) and historical_quotes (one-shot
-        // immutable slot) get the same Quote value.
+        // Write the quote to public storage via enqueued public call.
+        // historical_quotes[envelope.timestamp] gets initialized to
+        // Quote { price, timestamp }; duplicate timestamps are skipped.
         self.enqueue_self.record_quote(price, envelope.timestamp);
     }
 

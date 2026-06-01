@@ -76,7 +76,7 @@ Defaults to the committed fixture at `src/ts/fixtures/binance-ETHUSDT.witness.js
 4. extracts the attestor's secp256k1 pubkey from `witness.publicKeyX/Y` (the same key Primus signed with)
 5. deploys `QuoteVerifier` with the 3 URL hashes + the attestor pubkey (both `PublicImmutable`)
 6. calls `verify(...)` with the witness
-7. asserts the receipt is successful **and** calls `get_latest_quote()` to read the recorded `Quote { price, timestamp }` back from storage
+7. asserts the receipt is successful **and** calls `get_quote_at(envelope.timestamp)` to read the recorded `Quote { price, timestamp }` back from storage
 
 Because the storage hashes are the same for every provider's witness (they all reference the same shared allow-list), one deployed contract instance verifies attestations from any of the 3 providers.
 

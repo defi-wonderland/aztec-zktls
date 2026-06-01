@@ -66,8 +66,7 @@ describe("QuoteVerifier (cached witness)", () => {
 
     // The witness carries `envelope.timestamp` as the attestor-signed unix
     // timestamp; the contract records it alongside the normalized price.
-    // Reading historical_quotes by that timestamp is immediate (no delay,
-    // unlike latest_quote which goes through QUOTE_DELAY).
+    // historical_quotes[timestamp] is readable immediately after verify().
     const expectedTimestamp = BigInt(w.timestamp);
     const quote = await readQuoteAt(contract, account, expectedTimestamp);
     console.log(
