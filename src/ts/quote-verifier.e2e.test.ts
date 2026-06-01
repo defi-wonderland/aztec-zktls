@@ -12,7 +12,7 @@ import {
   findLatestWitness,
   loadWitness,
   deployAndVerify,
-  readLatestQuote,
+  readQuoteAt,
 } from "./utils.js";
 
 // Live end-to-end: spawn `yarn attest` against Primus DVC (real network call,
@@ -119,9 +119,9 @@ describe("QuoteVerifier E2E (live Primus attestation)", () => {
     expect(receipt.blockNumber).toBeGreaterThan(0);
 
     const expectedTimestamp = BigInt(w.timestamp);
-    const quote = await readLatestQuote(contract, account);
+    const quote = await readQuoteAt(contract, account, expectedTimestamp);
     console.log(
-      `${tag} latest_quote: price=${quote.price} timestamp=${quote.timestamp}`,
+      `${tag} historical_quote @${expectedTimestamp}: price=${quote.price}`,
     );
     expect(quote.price).toBeGreaterThan(0n);
     expect(quote.timestamp).toBe(expectedTimestamp);

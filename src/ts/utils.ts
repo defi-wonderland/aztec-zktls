@@ -181,20 +181,37 @@ export async function deployAndVerify(
 }
 
 /**
- * Read the contract's `latest_quote` via the public view function. After a
- * successful `verify()`, the call enqueues a scheduled write to the
- * DelayedPublicMutable; the value is observable from public context
- * immediately (the QUOTE_DELAY only affects private readers).
+ * Read the contract's `latest_quote` via the public view function.
+ *
+ * Note: this returns the *current* DelayedPublicMutable value, not the most
+ * recently scheduled one. Because `verify()` schedules writes with a
+ * QUOTE_DELAY window (60s by default), this read will return the *prior*
+ * value during that window - including in public context. To observe the
+ * just-written quote immediately, use `readQuoteAt(timestamp)`.
  */
 export async function readLatestQuote(
   contract: QuoteVerifierContract,
   caller: AccountManager,
 ): Promise<{ price: bigint; timestamp: bigint }> {
-  const q = (await contract.methods
+  const sim = await contract.methods
     .get_latest_quote()
-    .simulate({ from: caller.address })) as unknown as {
-    price: bigint;
-    timestamp: bigint;
-  };
-  return q;
+    .simulate({ from: caller.address });
+  return sim.result as { price: bigint; timestamp: bigint };
+}
+
+/**
+ * Read the historical quote recorded at `timestamp` via the public view.
+ * PublicImmutable writes from public context take effect immediately, so
+ * this reflects the latest verify() before the QUOTE_DELAY elapses.
+ * Reverts if no quote was recorded at this timestamp.
+ */
+export async function readQuoteAt(
+  contract: QuoteVerifierContract,
+  caller: AccountManager,
+  timestamp: bigint,
+): Promise<{ price: bigint; timestamp: bigint }> {
+  const sim = await contract.methods
+    .get_quote_at(timestamp)
+    .simulate({ from: caller.address });
+  return sim.result as { price: bigint; timestamp: bigint };
 }

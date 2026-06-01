@@ -10,7 +10,7 @@ import {
   findLatestWitness,
   loadWitness,
   deployAndVerify,
-  readLatestQuote,
+  readQuoteAt,
 } from "./utils.js";
 
 // Default: load the committed fixture so this suite is fully offline.
@@ -66,10 +66,12 @@ describe("QuoteVerifier (cached witness)", () => {
 
     // The witness carries `envelope.timestamp` as the attestor-signed unix
     // timestamp; the contract records it alongside the normalized price.
+    // Reading historical_quotes by that timestamp is immediate (no delay,
+    // unlike latest_quote which goes through QUOTE_DELAY).
     const expectedTimestamp = BigInt(w.timestamp);
-    const quote = await readLatestQuote(contract, account);
+    const quote = await readQuoteAt(contract, account, expectedTimestamp);
     console.log(
-      `[test] latest_quote: price=${quote.price} timestamp=${quote.timestamp}`,
+      `[test] historical_quote @${expectedTimestamp}: price=${quote.price}`,
     );
     expect(quote.price).toBeGreaterThan(0n);
     expect(quote.timestamp).toBe(expectedTimestamp);
