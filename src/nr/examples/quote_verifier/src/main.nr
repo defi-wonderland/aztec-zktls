@@ -19,8 +19,7 @@ pub contract QuoteVerifier {
     use attestation_verifier::verify_attestation;
     use aztec::{
         macros::{events::event, functions::{external, initializer}, storage::storage},
-        protocol::address::AztecAddress,
-        protocol::hash::poseidon2_hash,
+        protocol::{address::AztecAddress, hash::poseidon2_hash},
         state_vars::{Map, PublicImmutable},
     };
 

@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared verifier/allowlist config used by ALL providers. The 3 allowed URLs are the full (provider, symbol)-bearing URLs the deployed contract accepts (NUM_ALLOWED_URLS=3 in the lib). Request URL == allowed URL byte-for-byte; the local attestation_verifier has a one-character patch (`>` -> `>=` on the unconstrained `starts_with` helper) that allows this -- see src/nr/attestation_verifier/src/lib.nr and the lib README's 'The starts_with patch' section.",
+  "_comment": "Shared verifier/allowlist config used by ALL providers. The 3 allowed URLs are the full (provider, symbol)-bearing URLs the deployed QuoteVerifier accepts. URL matching is *not* in the lib -- the deploy script Poseidon2-hashes each URL (zero-padded to MAX_URL_LEN) and the contract stores those hashes in a Map<Field, PublicImmutable<bool>>. verify() hashes envelope.request_url with the same zero-padding and reads the map slot; an uninitialized read reverts. Exact byte equality is structural: different URL bytes -> different hash -> not in map.",
   "maxResponseNum": 1,
   "maxUrlLen": 96,
   "allowedUrls": [

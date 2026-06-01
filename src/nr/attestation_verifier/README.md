@@ -1,8 +1,8 @@
 # attestation_verifier
 
-Primus zkTLS attestation verifier — Noir building blocks for proving the validity of a Primus-signed envelope inside a Noir/Aztec circuit.
+Primus zkTLS attestation verifier — three Noir cryptographic primitives plus a thin canonical-order wrapper for proving a Primus-signed envelope is valid. Aztec-agnostic; usable in any Noir circuit.
 
-Modified from [primus-labs/zktls-verification-noir](https://github.com/primus-labs/zktls-verification-noir) (commit `65496b7`). See [Divergences from upstream](#divergences-from-upstream) below for the full list; the biggest is the in-circuit `keccak256(envelope)` reconstruction that closes upstream [issue #9](https://github.com/primus-labs/zktls-verification-noir/issues/9).
+Modified from [primus-labs/zktls-verification-noir](https://github.com/primus-labs/zktls-verification-noir) (commit `65496b7`). See [Divergences from upstream](#divergences-from-upstream) below; the biggest is the in-circuit `keccak256(envelope)` reconstruction that closes upstream [issue #9](https://github.com/primus-labs/zktls-verification-noir/issues/9).
 
 ## Install
 
@@ -11,19 +11,19 @@ Modified from [primus-labs/zktls-verification-noir](https://github.com/primus-la
 attestation_verifier = { git = "https://github.com/defi-wonderland/aztec-zktls-poc", tag = "vX.Y.Z", directory = "src/nr/attestation_verifier" }
 ```
 
-(Repo will be renamed to `aztec-zktls` once it leaves PoC status — update the URL accordingly.)
+(Repo rename to `aztec-zktls` pending — update the URL once it lands.)
 
-If you're consuming the lib from another crate inside *this* workspace, use a path dep instead — the relative path depends on where your `Nargo.toml` sits. The bundled example at `src/nr/examples/quote_verifier/` uses `path = "../../attestation_verifier"`.
+If you're consuming the lib from another crate inside *this* workspace, use a path dep instead. The bundled example at `src/nr/examples/quote_verifier/` uses `path = "../../attestation_verifier"`.
 
-The lib depends on `aztec-nr@v4.3.0` (for `aztec::protocol::hash::poseidon2_hash`) and pulls `noir-lang/sha256@v0.3.0` + `noir-lang/keccak256@v0.1.3` as direct deps. This makes the lib Aztec-only — it can't be used in standalone Noir circuits outside an Aztec contract context.
+The lib has **no aztec-nr dependency**. Direct deps are only `noir-lang/sha256@v0.3.0` and `noir-lang/keccak256@v0.1.3`, so the lib drops into any Noir circuit — not just Aztec contracts.
 
 ## API
 
-Four building blocks plus a convenience wrapper. Each does one thing; consumers compose them based on use case.
+Three building blocks plus a canonical-order wrapper. The lib takes **no policy positions** — no URL matching, no allow-list, no recipient validation, no timestamp window. Consumers compose around these primitives.
 
 ### Building blocks
 
-#### `derive_envelope_hash(envelope_fields...) -> [u8; 32]`
+#### `derive_envelope_hash(...) -> [u8; 32]`
 
 Reconstruct `keccak256(encodePacked(envelope))` byte-for-byte from envelope fields. Output is what the Primus attestor signed.
 
@@ -43,12 +43,6 @@ recipient(20)
 
 Assert an ECDSA-secp256k1 signature is valid for the given hash and public key. The caller is responsible for ensuring `hash` came from a derived (not witnessed) source — typically the output of `derive_envelope_hash` against the same envelope.
 
-#### `match_url_against_allowlist<MAX_URL_LEN, NUM_ALLOWED_URLS>(request_url, allowed_urls) -> Field`
-
-Find which entry of `allowed_urls` is a byte-prefix of `request_url`, constrain the prefix match, and return the Poseidon2 hash of the matched entry. Reverts if no entry matches.
-
-`NUM_ALLOWED_URLS` is generic (upstream hardcoded it at 3). The returned hash is computed over `MAX_URL_LEN` bytes of the matched URL zero-padded, so consumers comparing hashes off-circuit must agree on `MAX_URL_LEN`.
-
 #### `bind_content_hashes<N, MAX_CONTENT_LEN, MAX_DATA_LEN>(contents, data, data_hash_offsets)`
 
 For each content `c[i]`, compute `sha256(c[i])` and assert its 64-character lowercase hex appears at `data_hash_offsets[i]` inside `data`.
@@ -57,56 +51,52 @@ For each content `c[i]`, compute `sha256(c[i])` and assert its 64-character lowe
 
 ### Convenience wrapper
 
-#### `verify_attestation_hashing(...) -> [Field; 1]`
+#### `verify_attestation(...)`
 
-Composes the four building blocks in the canonical order:
+Composes the three primitives in canonical order:
 
 1. `derive_envelope_hash(...)` → `hash`
 2. `verify_ecdsa_over_hash(pk, sig, hash)`
-3. `match_url_against_allowlist(request_url, allowed_urls)` → matched hash
-4. `bind_content_hashes(contents, data, offsets)`
+3. `bind_content_hashes(contents, data, offsets)`
 
-Returns the matched allowed URL's Poseidon2 hash. Most consumers use this directly.
+Returns nothing. After it returns, every envelope field passed in is provably what the attestor signed, and each `contents[i]` is provably the plaintext whose SHA256 hex sits at `data_hash_offsets[i]` inside the signed `data`. Most consumers use this directly and layer their own policy (URL allow-list, recipient check, timestamp window) on top.
 
 ## Usage
 
-### Canonical: full attestation check
+### Canonical: full cryptographic verification + your own policy
 
 ```noir
-use attestation_verifier::verify_attestation_hashing;
+use attestation_verifier::verify_attestation;
 
-let matched: [Field; 1] = verify_attestation_hashing(
+verify_attestation(
     attestor_x, attestor_y, signature,
-    [request_url], allowed_urls,
-    contents,
-    recipient, request_hmb, response_resolves,
+    recipient, [request_url], request_hmb, response_resolves,
     data, att_conditions, timestamp, addition_params,
-    data_hash_offsets,
+    contents, data_hash_offsets,
 );
-// Now assert `matched[0]` is in your contract's allowed-URL hash set, then act
-// on `contents` (price, balance, whatever the attestor revealed).
+
+// After this returns: every envelope field above is signature-bound.
+// Now apply your own policy — URL allow-list, recipient identity, timestamp
+// window, anything else. See the QuoteVerifier example for the canonical
+// Map<Field, PublicImmutable<bool>> URL-hash lookup pattern.
 ```
 
-### Non-canonical: single pinned URL prefix
+### Lower-level: compose the building blocks directly
 
-For an oracle that pins one base URL prefix (rather than maintaining an allow-list of full URLs), compose the building blocks directly and skip `match_url_against_allowlist`:
+If you need to interleave checks between the cryptographic steps, or skip the content-binding step entirely, call the primitives directly:
 
 ```noir
 use attestation_verifier::{derive_envelope_hash, verify_ecdsa_over_hash, bind_content_hashes};
 
-// 1. Reconstruct + verify the signature is over THIS envelope.
 let envelope_hash = derive_envelope_hash(
     recipient, [request_url], request_hmb, response_resolves,
     data, att_conditions, timestamp, addition_params,
 );
 verify_ecdsa_over_hash(attestor_x, attestor_y, signature, envelope_hash);
 
-// 2. Caller-specific URL check (e.g. byte-equality of the first N bytes
-//    against a pinned `base_url_prefix`). Implementation is caller-defined;
-//    pseudocode placeholder shown:
-//        assert_url_starts_with_pinned_prefix(request_url, base_url_prefix);
+// At this point every envelope field is signature-bound. Insert any policy
+// check here if it should fail before content binding.
 
-// 3. Bind each content to the now-signature-bound `data` string.
 bind_content_hashes(contents, data, data_hash_offsets);
 ```
 
@@ -114,29 +104,50 @@ bind_content_hashes(contents, data, data_hash_offsets);
 
 | Parameter | Used by | Meaning |
 |---|---|---|
-| `MAX_URL_LEN` | `derive_envelope_hash`, `match_url_against_allowlist`, wrapper | Max bytes per URL (in `request_urls` and `allowed_urls`) |
-| `MAX_HMB_LEN` | `derive_envelope_hash`, wrapper | Max bytes of `request.header + method + body` concat |
-| `N` | `derive_envelope_hash`, `bind_content_hashes`, wrapper | Number of response-resolve fields per request |
-| `MAX_RR_LEN` | `derive_envelope_hash`, wrapper | Max bytes per `response_resolve` entry |
-| `MAX_CONTENT_LEN` | `bind_content_hashes`, wrapper | Max bytes per attested content value |
-| `MAX_DATA_LEN` | `derive_envelope_hash`, `bind_content_hashes`, wrapper | Max bytes of envelope's `data` JSON |
-| `MAX_COND_LEN` | `derive_envelope_hash`, wrapper | Max bytes of envelope's `att_conditions` |
-| `MAX_PARAMS_LEN` | `derive_envelope_hash`, wrapper | Max bytes of envelope's `addition_params` |
-| `NUM_ALLOWED_URLS` | `match_url_against_allowlist`, wrapper | Number of allow-list slots (generic; upstream was hardcoded at 3) |
+| `MAX_URL_LEN` | `derive_envelope_hash`, `verify_attestation` | Max bytes per request URL |
+| `MAX_HMB_LEN` | `derive_envelope_hash`, `verify_attestation` | Max bytes of `request.header + method + body` concat |
+| `N` | `derive_envelope_hash`, `bind_content_hashes`, `verify_attestation` | Number of response-resolve fields per request |
+| `MAX_RR_LEN` | `derive_envelope_hash`, `verify_attestation` | Max bytes per `response_resolve` entry |
+| `MAX_CONTENT_LEN` | `bind_content_hashes`, `verify_attestation` | Max bytes per attested content value |
+| `MAX_DATA_LEN` | `derive_envelope_hash`, `bind_content_hashes`, `verify_attestation` | Max bytes of envelope's `data` JSON |
+| `MAX_COND_LEN` | `derive_envelope_hash`, `verify_attestation` | Max bytes of envelope's `att_conditions` |
+| `MAX_PARAMS_LEN` | `derive_envelope_hash`, `verify_attestation` | Max bytes of envelope's `addition_params` |
 
-`NUM_REQUEST_URLS` is fixed at 1 inside `derive_envelope_hash` (and therefore the wrapper). Lifting it would also require multi-request handling in the off-chain `encodePacked` step.
+`NUM_REQUEST_URLS` is fixed at 1 inside `derive_envelope_hash` (and therefore the wrapper) — see [Divergences](#divergences-from-upstream) point 4.
 
 ## Composition soundness
 
 If you call the building blocks directly, the safe order is:
 
-1. `derive_envelope_hash` — produces a verified hash of the envelope you're about to trust.
+1. `derive_envelope_hash` — produces a derived hash of the envelope you're about to trust.
 2. `verify_ecdsa_over_hash` — binds the attestor's signature to that exact hash.
-3. **From this point on, all envelope fields are signature-bound**. You can now safely:
-   - call `match_url_against_allowlist` (or do your own URL constraint)
+3. **From this point on, all envelope fields are signature-bound.** You can safely:
+   - apply any policy check (URL match, recipient identity, timestamp window, etc.)
    - call `bind_content_hashes` against `envelope.data`
 
 Skipping or reordering this gives you a function that compiles but proves nothing. The wrapper enforces this composition for you.
+
+## Hashing URLs from BoundedVec (consumer gotcha)
+
+A common consumer pattern after `verify_attestation`: hash the now-signature-bound request URL to compare against an allow-list of URL hashes in storage. There's a subtle trap when hashing a `BoundedVec<u8, MAX_URL_LEN>`.
+
+**The trap:** `BoundedVec::storage()` returns the underlying `[u8; MAX_URL_LEN]` array, and bytes at positions `>= len()` are **witnessed values, not necessarily zero**. A prover could craft trailing bytes that produce a hash colliding with an allow-listed URL's hash if you feed `storage()` straight into a hash function.
+
+**The safe pattern:** copy into a fresh `[Field; MAX_URL_LEN]`, zero-padding by construction:
+
+```noir
+use aztec::protocol::hash::poseidon2_hash;
+
+let mut hash_input: [Field; MAX_URL_LEN] = [0; MAX_URL_LEN];
+for j in 0..MAX_URL_LEN {
+    if j < url.len() {
+        hash_input[j] = url.storage()[j] as Field;
+    }
+}
+let url_hash = poseidon2_hash(hash_input);
+```
+
+Off-chain hashers must apply the same zero-padding to `MAX_URL_LEN` so the hashes agree. QuoteVerifier uses this pattern; see [examples README](../examples/README.md).
 
 ## Trust model: closing the splice attack
 
@@ -147,80 +158,30 @@ This lib closes the gap by reconstructing `keccak256(envelope)` in-circuit from 
 The end-to-end chain a consumer gets:
 
 ```
-signature ⇒ derived envelope hash ⇒ specific envelope bytes ⇒ specific data string ⇒ specific SHA256 hex bytes ⇒ original content
+signature => derived envelope hash => specific envelope bytes => specific data string => specific SHA256 hex bytes => original content
 ```
 
-Every ⇒ is a circuit constraint. The remaining trust assumption sits with the attestor itself (it signs only what it actually observed over the wire) — zkTLS as an oracle with a small trusted set, not trustless TLS.
+Every arrow is a circuit constraint. The remaining trust assumption sits with the attestor itself (it signs only what it actually observed over the wire) — zkTLS as an oracle with a small trusted set, not trustless TLS.
 
 ## Divergences from upstream
 
 Primus's Noir lib lives at <https://github.com/primus-labs/zktls-verification-noir> as a subdirectory of a monorepo. They never publish git tags, and Nargo's git-dep mechanism requires a `tag` (no `rev` or `branch`) — so importing the lib over git isn't possible without forking and self-tagging.
 
-This lib is based on upstream `main` at commit `65496b7b99879fc108b68bd7f08296225786a40c` with the following local divergences. All are documented inline at their call sites.
+This lib is based on upstream `main` at commit `65496b7b99879fc108b68bd7f08296225786a40c`. Divergences:
 
-**Patches:**
+1. **`sha256_var(..., len as u64)` → `len as u32`** because `noir-lang/sha256` v0.3.0 (aztec-nr 4.3.0 compatible) tightened the length-arg type. One-character mechanical fix.
 
-1. `starts_with`'s strict `haystack.len() > needle.len()` relaxed to `>=` so a request URL byte-equal to an allowed URL passes. See [the patch in detail](#the-starts_with-patch) below.
-2. `sha256_var(..., len as u64)` → `len as u32` because `noir-lang/sha256` v0.3.0 (aztec-nr 4.3.0 compatible) tightened the length-arg type. One-character mechanical fix.
+2. **`derive_envelope_hash` reconstructs `keccak256(envelope)` in-circuit.** Closes upstream issue [#9](https://github.com/primus-labs/zktls-verification-noir/issues/9) — see [Trust model](#trust-model-closing-the-splice-attack) above. Adds the `noir-lang/keccak256` dep.
 
-**Larger rewrites:**
+3. **Monolithic verifier split into three building blocks** — `derive_envelope_hash`, `verify_ecdsa_over_hash`, `bind_content_hashes`. The new `verify_attestation` wrapper composes them in canonical order with **no policy** baked in.
 
-3. **`derive_envelope_hash` reconstructs `keccak256(envelope)` in-circuit.** Closes upstream issue [#9](https://github.com/primus-labs/zktls-verification-noir/issues/9) — see [Trust model](#trust-model-closing-the-splice-attack) above. Adds the `noir-lang/keccak256` dep.
-4. **Monolithic verifier split into building blocks** — `derive_envelope_hash`, `verify_ecdsa_over_hash`, `match_url_against_allowlist`, `bind_content_hashes`. The original `verify_attestation_hashing` remains as a canonical-order wrapper. Consumers with non-canonical needs (e.g. a single pinned URL prefix, no allow-list) call the building blocks directly.
-5. **`NUM_REQUEST_URLS` dropped from 2 to 1.** Primus's protocol unit is `(1 URL → 1 reveal)` — see the multi-resolve discussion in the [examples README](../examples/README.md#dont-attest-multiple-fields-from-the-same-url-structural-limit-not-a-bug). Real attestations always carry exactly one request URL; lifting back to 2+ would also require multi-request handling in the off-chain `encodePacked` parser.
+4. **`NUM_REQUEST_URLS` dropped from 2 to 1.** Primus's protocol unit is `(1 URL -> 1 reveal)` — see the multi-resolve discussion in the [examples README](../examples/README.md#dont-attest-multiple-fields-from-the-same-url-structural-limit-not-a-bug). Real attestations always carry exactly one request URL; lifting back to 2+ would also require multi-request handling in the off-chain `encodePacked` parser.
 
     *Could we expose it as a generic instead of fixing it at 1?* Mechanically yes — the URL side would mirror the `response_resolves` loop in `derive_envelope_hash` (~30 lines). We deliberately don't, for two reasons. **(a)** Primus's SDK + native attestor only ever populate slot 0 even when given multi-URL input (the JS SDK reads `responseResolve[0]` only; the native binary stamps the same hash across all slots), so there's no real envelope shape with `N > 1` to verify a circuit against today. **(b)** Upstream's old `N = 2` byte layout was never exercised end-to-end; if Primus ever ships multi-URL signing for real, we'd want their spec'd layout at that point, not a guess now. Until then, a `NUM_REQUEST_URLS` generic would be a knob no one can turn. Revisit when Primus ships it.
-6. **`NUM_ALLOWED_URLS` lifted to a generic.** Was hardcoded at 3 upstream; now a generic parameter of `match_url_against_allowlist` and the wrapper. Consumers pick whatever fits.
-7. **Pedersen-commitment path removed** (`verify_attestation_comm`, `verify_commitment_group`, the Grumpkin imports). The commitment-mode is useful when an attested field exceeds a single SHA256 block; restore from upstream if you need it.
 
-## The `starts_with` patch
+5. **URL allow-list matching removed entirely.** Upstream's `verify_attestation_hashing` baked in a `verify_sig_and_urls` step that took a fixed-size allow-list and did a byte-prefix match. We initially kept it (as `match_url_against_allowlist`) and patched a one-character bug in its `starts_with` helper. Two soundness footguns surfaced on review: (a) the constrained loop only checked bytes up to `allowed_url.len()`, so a longer signed request URL with the allowed URL as a prefix would pass; (b) the unconstrained index choice was only implicitly pinned by the byte-equality loop, so overlapping-prefix allow-lists let the prover pick which slot's hash got returned. Cleanest fix: remove URL matching from the lib entirely. Consumers own URL policy — see [QuoteVerifier](../examples/quote_verifier/) for the canonical Map-based exact-equality pattern. Side effects: the lib no longer depends on `aztec-nr` (`poseidon2_hash` was only used here), the unconstrained `starts_with` / `get_allowed_url_index` helpers are gone, and the upstream `starts_with` patch is gone.
 
-Upstream's unconstrained `starts_with` helper and its caller `get_allowed_url_index` disagree about whether equal-length inputs are valid:
-
-```rust
-// caller permits equal length:
-if (allowed_url.len() <= request_url.len()) {
-    let result = starts_with(request_url, allowed_url);
-}
-
-// callee rejects equal length:
-assert(haystack.len() > needle_length, "haystack shorter than needle");  // strict >
-```
-
-You hit this whenever the request URL is byte-identical to an entry in `allowedUrls` — a natural pattern when the allow-list pins full URLs (so the URL match itself commits to specific query parameters). The QuoteVerifier example uses exactly this pattern; see the [examples README](../examples/README.md#why-the-allowed-urls-contain-the-ticker-symbol) for the consumer-side context, including [the alternatives we tried off-circuit](../examples/README.md#why-the-patch-instead-of-a-workaround) before settling on the patch.
-
-### What the patch is
-
-One character, inside the `unconstrained fn starts_with` helper:
-
-```diff
-- assert(haystack.len() > needle_length, "haystack shorter than needle");
-+ assert(haystack.len() >= needle_length, "haystack shorter than needle");
-```
-
-### Why it's safe
-
-1. **`starts_with` is `unconstrained`.** Unconstrained functions run as hints during witness generation — their assertions are runtime checks, never circuit constraints. They don't enter the proof.
-
-2. **The actual cryptographic prefix check is constrained, and already handles equal-length inputs.** Inside `match_url_against_allowlist`:
-
-    ```rust
-    for j in 0..MAX_URL_LEN {
-        if j < allowed_url.len() {
-            assert_eq(request_urls[i].storage()[j], allowed_url.storage()[j], "URL check failed");
-        }
-    }
-    ```
-
-    The loop iterates `j < allowed_url.len()` positions, both within bounds, and asserts byte equality. For `request == allowed` (equal length), it proves prefix-which-equals-equality — correctly.
-
-3. **The loop body of `starts_with` itself agrees with `>=`.** Its `for j in 0..needle_length` requires `haystack.get(j)` to succeed for `j` up to `needle_length - 1`, which needs `haystack.len() >= needle_length`. The strict `>` was an off-by-one that disagreed with both the loop body's actual safety boundary and the caller's `<=` gate.
-
-So loosening the guard from `>` to `>=` doesn't change what the circuit *proves*, doesn't expose any byte the constrained path didn't already see, and aligns three places in the file that were inconsistent.
-
-### Proper fix
-
-Open an upstream PR at `primus-labs/zktls-verification-noir` flipping that one operator. Once it merges and Primus tags a release that Nargo can `tag`-import, this local copy can be deleted in favor of a git-dep, ending the local divergence.
+6. **Pedersen-commitment path removed** (`verify_attestation_comm`, `verify_commitment_group`, the Grumpkin imports). The commitment-mode is useful when an attested field exceeds a single SHA256 block; restore from upstream if you need it.
 
 ## See also
 

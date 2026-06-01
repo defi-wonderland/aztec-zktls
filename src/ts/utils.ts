@@ -16,9 +16,10 @@ export const MAX_URL_LEN = 96;
 
 /**
  * Poseidon2 hash of a UTF-8 URL, zero-padded to `maxLen` bytes per byte.
- * Mirrors what `attestation_verifier::verify_attestation_hashing` computes
- * internally over the allowed_urls argument, so the storage hashes we
- * commit at deploy match the matched_url_hashes the circuit returns.
+ * Mirrors the URL hashing the QuoteVerifier contract does in-circuit
+ * over the request URL bytes (zero-padded to maxLen). Storage hashes we
+ * commit at deploy must match what the circuit computes at verify time,
+ * or the contract's `allowed_url_hashes` map lookup misses.
  */
 export async function poseidon2HashUrl(
   bb: Barretenberg,
@@ -77,7 +78,7 @@ export type Witness = {
   requestUrls: number[][];
   allowedUrls: number[][];
   plainJsonResponses: number[][];
-  // Envelope fields (see attestation_verifier::verify_attestation_hashing).
+  // Envelope fields (see attestation_verifier::verify_attestation).
   recipient: number[];
   requestHmb: number[];
   responseResolves: number[][];
