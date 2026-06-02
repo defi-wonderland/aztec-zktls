@@ -14,12 +14,15 @@ export const NODE_URL = process.env.AZTEC_NODE_URL ?? "http://localhost:8080";
 /** Match the `MAX_URL_LEN` global in `src/nr/examples/quote_verifier/src/main.nr`. */
 export const MAX_URL_LEN = 96;
 
+/** Match the `MAX_RR_LEN` global in `src/nr/examples/quote_verifier/src/main.nr`. */
+export const MAX_RR_LEN = 48;
+
 /**
  * Poseidon2 hash of a UTF-8 URL, zero-padded to `maxLen` bytes per byte.
  * Mirrors the URL hashing the QuoteVerifier contract does in-circuit
- * over the request URL bytes (zero-padded to maxLen). Storage hashes we
- * commit at deploy must match what the circuit computes at verify time,
- * or the contract's `allowed_url_hashes` map lookup misses.
+ * over the request URL bytes (zero-padded to maxLen). Used as one half of
+ * the pair-hash that keys `allowed_attestation_hashes` — see
+ * `poseidon2HashAttestationPair`.
  */
 export async function poseidon2HashUrl(
   bb: Barretenberg,
@@ -27,6 +30,11 @@ export async function poseidon2HashUrl(
   maxLen: number,
 ): Promise<bigint> {
   const bytes = Array.from(new TextEncoder().encode(url));
+  if (bytes.length > maxLen) {
+    throw new Error(
+      `URL byte length (${bytes.length}) exceeds maxLen=${maxLen}: '${url}'`,
+    );
+  }
   while (bytes.length < maxLen) bytes.push(0);
   const inputs = bytes.map((b) => new Fr(BigInt(b)).toBuffer());
   const hashFr = await bb.poseidon2Hash({ inputs });
@@ -44,15 +52,21 @@ export async function hashAllowedUrls(
 }
 
 /**
- * Poseidon2 hash of raw URL bytes (as the witness stores them), zero-padded.
- * Used to derive contract storage allowed_url_hashes directly from a witness,
- * so the test doesn't have to hardcode the URL strings.
+ * Poseidon2 hash of raw bytes (as the witness stores them), zero-padded.
+ * Used to derive contract storage allow-list hashes directly from a witness,
+ * so the test doesn't have to hardcode the URL / response_resolve strings.
+ *
+ * Mirrors the circuit's zero-padded `[Field; maxLen]` absorption, so off-chain
+ * and in-circuit hashes match for any (bytes, maxLen) pair.
  */
-export async function poseidon2HashUrlBytes(
+export async function poseidon2HashBytes(
   bb: Barretenberg,
   bytes: number[],
   maxLen: number,
 ): Promise<bigint> {
+  if (bytes.length > maxLen) {
+    throw new Error(`byte length (${bytes.length}) exceeds maxLen=${maxLen}`);
+  }
   const padded = bytes.slice();
   while (padded.length < maxLen) padded.push(0);
   const inputs = padded.map((b) => new Fr(BigInt(b)).toBuffer());
@@ -60,14 +74,50 @@ export async function poseidon2HashUrlBytes(
   return BigInt(Fr.fromBuffer(Buffer.from(hashFr.hash)).toString());
 }
 
-export async function hashAllowedUrlsFromWitness(
+/**
+ * Compose the contract's allow-list slot key for one (url, response_resolve)
+ * pair: poseidon2_hash([poseidon2_hash(url_bytes), poseidon2_hash(rr_bytes)]).
+ * Binding both prevents a submitter from requesting a different parsePath
+ * against an allow-listed URL and having it recorded as the canonical price.
+ */
+export async function poseidon2HashAttestationPair(
+  bb: Barretenberg,
+  urlBytes: number[],
+  rrBytes: number[],
+  maxUrlLen: number,
+  maxRRLen: number,
+): Promise<bigint> {
+  const urlHash = await poseidon2HashBytes(bb, urlBytes, maxUrlLen);
+  const rrHash = await poseidon2HashBytes(bb, rrBytes, maxRRLen);
+  const inputs = [new Fr(urlHash).toBuffer(), new Fr(rrHash).toBuffer()];
+  const hashFr = await bb.poseidon2Hash({ inputs });
+  return BigInt(Fr.fromBuffer(Buffer.from(hashFr.hash)).toString());
+}
+
+export async function hashAllowedAttestationsFromWitness(
   bb: Barretenberg,
   allowedUrls: number[][],
-  maxLen: number,
+  allowedResponseResolves: number[][],
+  maxUrlLen: number,
+  maxRRLen: number,
 ): Promise<bigint[]> {
+  if (allowedUrls.length !== allowedResponseResolves.length) {
+    throw new Error(
+      `allowedUrls (${allowedUrls.length}) and allowedResponseResolves (${allowedResponseResolves.length}) must be the same length`,
+    );
+  }
   const hashes: bigint[] = [];
-  for (const bytes of allowedUrls)
-    hashes.push(await poseidon2HashUrlBytes(bb, bytes, maxLen));
+  for (let i = 0; i < allowedUrls.length; i++) {
+    hashes.push(
+      await poseidon2HashAttestationPair(
+        bb,
+        allowedUrls[i]!,
+        allowedResponseResolves[i]!,
+        maxUrlLen,
+        maxRRLen,
+      ),
+    );
+  }
   return hashes;
 }
 
@@ -77,6 +127,7 @@ export type Witness = {
   signature: number[];
   requestUrls: number[][];
   allowedUrls: number[][];
+  allowedResponseResolves: number[][]; // parallel to allowedUrls
   plainJsonResponses: number[][];
   // Envelope fields (see attestation_verifier::verify_attestation).
   recipient: number[];
@@ -101,21 +152,26 @@ export function findLatestWitness(prefix?: string): string {
       `No attestations directory at ${dir}. Run \`yarn attest <provider> symbol=...\` first.`,
     );
   }
+  // Sort by mtime instead of filename — across providers, alphabetic ordering
+  // doesn't match chronological (`okx-...` > `coinbase-...` > `binance-...`).
   const files = fs
     .readdirSync(dir)
     .filter(
       (f) =>
         f.endsWith(".witness.json") && (prefix ? f.startsWith(prefix) : true),
     )
-    .sort()
-    .reverse();
+    .map((name) => ({
+      name,
+      mtime: fs.statSync(path.join(dir, name)).mtimeMs,
+    }))
+    .sort((a, b) => b.mtime - a.mtime);
   if (files.length === 0) {
     const hint = prefix ? `matching '${prefix}*'` : "";
     throw new Error(
       `No witnesses ${hint}in ${dir}. Run \`yarn attest <provider> symbol=...\` first.`,
     );
   }
-  return path.join(dir, files[0]!);
+  return path.join(dir, files[0]!.name);
 }
 
 export function loadWitness(p: string): Witness {
@@ -139,16 +195,18 @@ export async function deployAndVerify(
   contract: QuoteVerifierContract;
   receipt: { status: string; blockNumber?: number; txHash: TxHash };
 }> {
-  const allowedUrlHashes = await hashAllowedUrlsFromWitness(
+  const allowedAttestationHashes = await hashAllowedAttestationsFromWitness(
     bb,
     witness.allowedUrls,
+    witness.allowedResponseResolves,
     MAX_URL_LEN,
+    MAX_RR_LEN,
   );
   const initialAttestor = { x: witness.publicKeyX, y: witness.publicKeyY };
 
   const { contract } = await QuoteVerifierContract.deploy(
     wallet,
-    allowedUrlHashes,
+    allowedAttestationHashes,
     initialAttestor,
   ).send({ from: account.address, wait: { timeout: DEPLOY_TIMEOUT } });
 

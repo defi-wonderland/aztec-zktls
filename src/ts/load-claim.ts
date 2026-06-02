@@ -13,6 +13,7 @@ export type ClaimVerifier = {
   maxResponseNum: number;
   maxUrlLen: number;
   allowedUrls: string[];
+  allowedResponseResolves: string[];
 };
 
 export type Claim = {

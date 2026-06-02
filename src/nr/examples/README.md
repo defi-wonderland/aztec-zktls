@@ -35,7 +35,7 @@ The rest of this README documents the consumer-side decisions the QuoteVerifier 
 
 ## Providers
 
-Three exchange ticker endpoints, all attest a single `price` field. **One deployed `QuoteVerifier` accepts attestations from any of the three providers** — the shared verifier config (`src/ts/providers/verifier.json`) lists all 3 provider+symbol URLs; the deploy script hashes each one and initializes a slot in the contract's `allowed_url_hashes` map.
+Three exchange ticker endpoints, all attest a single `price` field. **One deployed `QuoteVerifier` accepts attestations from any of the three providers** — the shared verifier config (`src/ts/providers/verifier.json`) lists all 3 provider+symbol URLs alongside their canonical `responseResolve` bytes; the deploy script pair-hashes each (URL, response_resolve) and initializes one slot per pair in the contract's `allowed_attestation_hashes` map.
 
 | Provider | Request URL template | Path | Default mode |
 |---|---|---|---|
@@ -45,23 +45,29 @@ Three exchange ticker endpoints, all attest a single `price` field. **One deploy
 
 To switch the supported asset (e.g. BTC instead of ETH), edit `src/ts/providers/verifier.json` so all 3 allowed URLs reflect the new symbol, then redeploy. The contract pins URL hashes and the attestor pubkey as `PublicImmutable` — there are no admin update functions; it's a fresh deploy each time.
 
-## Allow-list shape: `Map<Field, PublicImmutable<bool>>`
+## Allow-list shape: `Map<Field, PublicImmutable<bool>>` keyed by (URL, response_resolve) pair-hash
 
-Storage holds the allow-list as a map keyed by `poseidon2_hash(zero-padded URL bytes)`:
+Storage holds the allow-list as a map keyed by `poseidon2_hash([url_hash, rr_hash])`:
 
 ```noir
-allowed_url_hashes: Map<Field, PublicImmutable<bool, Context>, Context>,
+allowed_attestation_hashes: Map<Field, PublicImmutable<bool, Context>, Context>,
 ```
 
-The constructor takes `[Field; 3]` (one hash per provider URL) and initializes each map slot to `true`. `verify(...)` hashes the request URL from the signature-bound envelope and reads the corresponding slot — an uninitialized read panics with "Trying to read from uninitialized PublicImmutable", which effectively rejects any URL not in the allow-list.
+where each inner hash is over the field's bytes zero-padded to its bound (URL bytes to `MAX_URL_LEN`, `response_resolves[0]` bytes to `MAX_RR_LEN`).
+
+The constructor takes `[Field; 3]` of pair-hashes (one per provider+symbol) and initializes each map slot to `true`. `verify(...)` derives the same pair-hash from the signature-bound `envelope.request_url` and `envelope.response_resolves[0]`, then reads the corresponding slot — an uninitialized read panics with "Trying to read from uninitialized PublicImmutable", which rejects any (URL, parsePath) pair not in the allow-list.
+
+**Why bind both URL and response_resolve:**
+
+The Primus attestor doesn't care which `parsePath` you ask for — it just attests whatever JSON value sits at that path. A submitter who only had to satisfy a URL allow-list could request the allow-listed URL with a completely different `parsePath` (e.g., `$` for the whole response body, or some other numeric field) and have *that* value recorded as the canonical "price." Pinning the (URL, response_resolve) pair binds the data-extraction path the same way it binds the URL — the contract only accepts attestations whose parsePath is exactly one of the deploy-time-known canonical paths.
 
 **Why a map instead of a fixed-size array of hashes:**
 
 - **O(1) lookup** — no `for j in 0..N` loop over slots, regardless of allow-list size.
-- **Exact equality is implicit.** Different URL bytes → different Poseidon hash → not in map. There's no prefix-match footgun: a longer signed request URL produces a different hash than the canonical allowed URL, so it gets rejected. The `request_url.len() == allowed_url.len()` assertion the earlier prefix-match design needed is now a structural property of "hash equality."
-- **Allow-list size isn't baked into `verify()`'s circuit shape.** The contract still picks a `NUM_ALLOWED_URLS_AT_DEPLOY` for the constructor's input array, but the circuit doesn't iterate the list — it does one map lookup. Bumping the allow-list size at redeploy time is just changing the constant.
+- **Exact equality is implicit.** Different URL or response_resolve bytes → different pair-hash → not in map. There's no prefix-match footgun.
+- **Allow-list size isn't baked into `verify()`'s circuit shape.** The contract picks `NUM_ALLOWED_URLS_AT_DEPLOY` for the constructor's input array, but the circuit doesn't iterate the list — it does one map lookup.
 
-The trade-off: every request URL must be byte-equal to a pre-known allowed URL. Any extra query parameter (`&recv_window=`, `&otherthing=`) the prover appends produces a hash miss → revert. That's the security property we want here — see the lib README's [discussion of the soundness footguns](../attestation_verifier/README.md#divergences-from-upstream) that the prefix-match design (which we removed) had.
+The trade-off: every request must be byte-equal to a pre-known (URL, parsePath) pair. Any extra query parameter or any non-canonical parsePath the prover requests produces a pair-hash miss → revert. That's the security property we want.
 
 ## Quote storage and price normalization
 
@@ -130,7 +136,7 @@ The lib's `bind_content_hashes` only accepts the SHA256 shape — its check is `
 
 ## Why the allowed URLs contain the ticker symbol
 
-`allowed_url_hashes` is a set-membership check on the request URL inside the circuit. If the allow-list were just `.../ticker/price` (no `?symbol=...`), then ANY symbol would attest successfully and the contract would have no cryptographic commitment to which asset the price represents. The recorded quote would say *"some Binance price"* with no way to tell ETHUSDT from BTCUSDT.
+`allowed_attestation_hashes` is a set-membership check on the (request_url, response_resolve) pair inside the circuit. If the allow-list URLs were just `.../ticker/price` (no `?symbol=...`), then ANY symbol would attest successfully and the contract would have no cryptographic commitment to which asset the price represents. The recorded quote would say *"some Binance price"* with no way to tell ETHUSDT from BTCUSDT.
 
 By baking `?symbol=ETHUSDT` (and equivalents) into the allow-list URLs, the URL match itself proves *"this is an ETH price from Binance"* — at zero extra circuit cost (one hash + one map read). The trade-off is granularity: with three slots, we have exactly one slot per provider for one symbol. Adding a second symbol means redeploying (or scaling up `NUM_ALLOWED_URLS_AT_DEPLOY` to fit more slots).
 
@@ -181,7 +187,7 @@ In other words: this isn't "Primus shipped a bug we should report." It's "Primus
 
 ## Why one shared `verifier.json` instead of per-provider
 
-Every claim's verifier config (mode, maxes, allowedUrls) was identical anyway — the allow-list is a property of the *contract* (what URLs it accepts), not of any specific provider. Hoisting it to `src/ts/providers/verifier.json` makes it visible that one deployed `QuoteVerifier` instance verifies attestations from any of the 3 providers. The per-provider claim files now describe only what actually differs: request URL, parsePath, TLS mode.
+Every claim's verifier config (mode, maxes, allow-list) was identical anyway — the allow-list is a property of the *contract* (what (URL, parsePath) pairs it accepts), not of any specific provider. Hoisting it to `src/ts/providers/verifier.json` makes it visible that one deployed `QuoteVerifier` instance verifies attestations from any of the 3 providers. The per-provider claim files now describe only what actually differs in the request flow: request URL, parsePath, TLS mode.
 
 ## Why the default `attMode` is `mpctls`
 
@@ -196,7 +202,7 @@ The QuoteVerifier contract verifies, end-to-end, **all inside the private circui
 1. **Envelope reconstruction**: the circuit reads the witness envelope fields (recipient, request URL, header+method+body, response resolves, `data`, attConditions, timestamp, additionParams) and rebuilds `keccak256(encodePacked(envelope))` byte-for-byte from Primus's `encodePacked` layout. (Lib: `derive_envelope_hash`.)
 2. **ECDSA signature** over the **derived** envelope hash, using the storage-pinned attestor pubkey. There is no witnessed `hash` to splice — the ECDSA check IS the binding from "signature" to "these specific witnessed envelope bytes." (Lib: `verify_ecdsa_over_hash`; see also [splice attack closure](../attestation_verifier/README.md#trust-model-closing-the-splice-attack).)
 3. **SHA256 content binding**: for each attested field, `sha256(content)` is computed in-circuit and asserted to appear (as 64-char hex) at a witness-provided offset inside the now-signature-bound `data` string. (Lib: `bind_content_hashes`.)
-4. **URL allow-list check** (contract policy, **not** lib): the contract hashes the signature-bound `envelope.request_url` (with explicit zero-padding to `MAX_URL_LEN`) and reads the corresponding slot in `allowed_url_hashes`. An uninitialized slot reverts; otherwise the URL is in the allow-list. Exact byte equality is structural — different URL bytes produce different Poseidon hashes.
+4. **(URL, response_resolve) pair-hash allow-list check** (contract policy, **not** lib): the contract hashes the signature-bound `envelope.request_url` AND `envelope.response_resolves[0]` (each with explicit zero-padding to its bound), combines them as `poseidon2_hash([url_hash, rr_hash])`, and reads the corresponding slot in `allowed_attestation_hashes`. An uninitialized slot reverts; otherwise the (URL, parsePath) pair is in the allow-list. Exact byte equality is structural for both fields — different bytes produce different Poseidon hashes.
 5. **Price parse + storage write**: the signature-bound content bytes are parsed in-circuit into a `u128` mantissa scaled to 8 decimals (reverts on non-digit bytes, multiple dots, or more than 8 fractional digits). An enqueued public call initializes `historical_quotes[envelope.timestamp]` with the `Quote { price, timestamp }` and emits a `QuoteRecorded` event. Duplicate-timestamp submissions are silently skipped via `is_initialized()` (no write, no event).
 
 The chain: `signature ⇒ derived envelope hash ⇒ specific envelope bytes ⇒ specific data string ⇒ specific SHA256 hex bytes ⇒ original content ⇒ parsed u128 price`, **plus** `envelope.request_url ⇒ specific Poseidon hash ⇒ allow-list membership`. Each ⇒ is a circuit constraint.

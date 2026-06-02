@@ -12,8 +12,9 @@ import {
 
 import { QuoteVerifierContract } from "../src/artifacts/QuoteVerifier.js";
 import {
+  MAX_RR_LEN,
   MAX_URL_LEN,
-  hashAllowedUrlsFromWitness,
+  hashAllowedAttestationsFromWitness,
   loadWitness,
   type Witness,
 } from "../src/ts/utils.js";
@@ -47,17 +48,19 @@ export default class QuoteVerifierBenchmark extends Benchmark {
     const witness = loadWitness(FIXTURE_PATH);
 
     const bb = await Barretenberg.new();
-    const allowedUrlHashes = await hashAllowedUrlsFromWitness(
+    const allowedAttestationHashes = await hashAllowedAttestationsFromWitness(
       bb,
       witness.allowedUrls,
+      witness.allowedResponseResolves,
       MAX_URL_LEN,
+      MAX_RR_LEN,
     );
     await bb.destroy();
 
     const initialAttestor = { x: witness.publicKeyX, y: witness.publicKeyY };
     const { contract } = await QuoteVerifierContract.deploy(
       wallet,
-      allowedUrlHashes,
+      allowedAttestationHashes,
       initialAttestor,
     ).send({ from: deployer });
 

@@ -85,7 +85,11 @@ describe("QuoteVerifier E2E (live Primus attestation)", () => {
     const [first] = await getInitialTestAccountsData();
     if (!first)
       throw new Error("No initial test accounts on the local network");
-    account = await wallet.createSchnorrAccount(first.secret, first.salt);
+    account = await wallet.createSchnorrAccount(
+      first.secret,
+      first.salt,
+      first.signingKey,
+    );
   }, 120_000);
 
   afterAll(async () => {

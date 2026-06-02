@@ -34,6 +34,14 @@ export function parseHashingData(
     config.maxResponseNum,
   );
   const allowedUrls = parseAllowedUrls(config.allowedUrls);
+  const allowedResponseResolves = parseAllowedUrls(
+    config.allowedResponseResolves,
+  );
+  if (allowedResponseResolves.length !== allowedUrls.length) {
+    throw new Error(
+      `allowedResponseResolves length (${allowedResponseResolves.length}) must equal allowedUrls length (${allowedUrls.length})`,
+    );
+  }
   const plainJsonResponses = parsePlainJsonResponses(
     attestationData.private_data,
   );
@@ -63,6 +71,7 @@ export function parseHashingData(
     signature: compactBytes,
     requestUrls,
     allowedUrls,
+    allowedResponseResolves,
     plainJsonResponses,
     recipient,
     requestHmb,

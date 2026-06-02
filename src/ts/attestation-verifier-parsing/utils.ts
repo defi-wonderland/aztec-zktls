@@ -37,20 +37,15 @@ export function encodePacked(publicData: AttestationData): number[] {
     );
   }
 
-  if (Array.isArray(publicData.responseResolves)) {
-    const responseConcat = publicData.responseResolves
-      .flatMap((r) => r.oneUrlResponseResolve)
-      .map((rr) => rr.keyName + rr.parseType + rr.parsePath)
-      .join("");
-    out.push(...keccak_256(Buffer.from(responseConcat, "utf8")));
-  } else {
-    const rr = publicData.responseResolves.oneUrlResponseResolve[0]!;
-    out.push(
-      ...keccak_256(
-        Buffer.from(rr.keyName + rr.parseType + rr.parsePath, "utf8"),
-      ),
-    );
-  }
+  const allResolves = (
+    Array.isArray(publicData.responseResolves)
+      ? publicData.responseResolves
+      : [publicData.responseResolves]
+  ).flatMap((r) => r.oneUrlResponseResolve);
+  const responseConcat = allResolves
+    .map((rr) => rr.keyName + rr.parseType + rr.parsePath)
+    .join("");
+  out.push(...keccak_256(Buffer.from(responseConcat, "utf8")));
 
   out.push(...Buffer.from(publicData.data, "utf8"));
   out.push(...Buffer.from(publicData.attConditions, "utf8"));

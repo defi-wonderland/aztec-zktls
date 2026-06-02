@@ -2,7 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseHashingData } from "./attestation-verifier-parsing";
-import type { AttestationFile } from "./attestation-verifier-parsing/types";
+import type {
+  AttestationFile,
+  ParsedHashingData,
+} from "./attestation-verifier-parsing/types";
 import { loadClaim, type Claim } from "./load-claim";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
@@ -46,7 +49,10 @@ function resolveAttestationFile(input: unknown): AttestationFile {
   );
 }
 
-export function prepareWitness(rawAttestationPath: string, claim: Claim) {
+export function prepareWitness(
+  rawAttestationPath: string,
+  claim: Claim,
+): ParsedHashingData {
   const attestation = loadJson<AttestationFile>(rawAttestationPath);
   resolveAttestationFile(attestation);
 
@@ -54,7 +60,22 @@ export function prepareWitness(rawAttestationPath: string, claim: Claim) {
     maxResponseNum: claim.verifier.maxResponseNum,
     maxUrlLen: claim.verifier.maxUrlLen,
     allowedUrls: claim.verifier.allowedUrls,
+    allowedResponseResolves: claim.verifier.allowedResponseResolves,
   });
+}
+
+/**
+ * Filename pattern: "<provider>-<symbol>-<ISO-timestamp>.raw.json", e.g.
+ * "okx-ETH-USDT-2026-06-01T12-53-43-147Z.raw.json". Split on `-` doesn't work
+ * for hyphenated symbols ("ETH-USDT", "ETH-USD"); the ISO timestamp always
+ * starts with a 4-digit year, so anchor the symbol capture there.
+ */
+function parseRawFilename(
+  basename: string,
+): { provider: string; symbol: string } | null {
+  const m = basename.match(/^([^-]+)-(.+)-(\d{4}-\d{2}-\d{2}T.+)\.raw\.json$/);
+  if (!m) return null;
+  return { provider: m[1]!, symbol: m[2]! };
 }
 
 function main() {
@@ -67,12 +88,21 @@ function main() {
   const absRaw = path.isAbsolute(rawPath)
     ? rawPath
     : path.join(process.cwd(), rawPath);
+  if (!absRaw.endsWith(".raw.json")) {
+    throw new Error(`Expected input file ending in .raw.json, got: ${rawPath}`);
+  }
 
-  // Filename pattern: "binance-ETHUSDT-2026-...raw.json" → provider="binance", symbol="ETHUSDT".
-  const fileParts = path.basename(rawPath).split("-");
+  const parsed = parseRawFilename(path.basename(rawPath));
   const rest = process.argv.slice(3);
   const providerName =
-    rest.length > 0 && !rest[0]!.includes("=") ? rest.shift()! : fileParts[0]!;
+    rest.length > 0 && !rest[0]!.includes("=")
+      ? rest.shift()!
+      : (parsed?.provider ?? "");
+  if (!providerName) {
+    throw new Error(
+      `Could not infer provider from filename '${path.basename(rawPath)}'; pass it as the second arg.`,
+    );
+  }
 
   const params: Record<string, string> = {};
   for (const kv of rest) {
@@ -80,7 +110,7 @@ function main() {
     if (!k || v.length === 0) throw new Error(`Bad key=value arg: ${kv}`);
     params[k] = v.join("=");
   }
-  if (!params.symbol && fileParts[1]) params.symbol = fileParts[1];
+  if (!params.symbol && parsed?.symbol) params.symbol = parsed.symbol;
 
   const claim = loadClaim(providerName, params);
 

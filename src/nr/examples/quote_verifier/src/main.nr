@@ -8,9 +8,12 @@ use aztec::macros::aztec;
  * records the normalized price into on-chain storage.
  *
  * Trust model: signatures are accepted only from the single attestor pubkey
- * pinned at deploy. The set of allowed request URLs is also pinned at deploy
- * as a map keyed by `poseidon2_hash(zero-padded URL bytes)`; the URL check is
- * exact byte equality (different URL bytes => different hash => not in map).
+ * pinned at deploy. The set of allowed (request_url, response_resolve) PAIRS
+ * is also pinned at deploy as a map keyed by
+ * `poseidon2_hash([url_hash, rr_hash])` where each inner hash is over the
+ * field's bytes zero-padded to its bound. Different URL or parsePath bytes
+ * yield a different pair-hash, so any (URL, parsePath) not in the map gets
+ * rejected on map read.
  *
  * Storage shape: every verified attestation creates an immutable entry in
  * `historical_quotes`, keyed by the attestor-signed `envelope.timestamp`.
@@ -51,9 +54,9 @@ pub contract QuoteVerifier {
     global MAX_URL_LEN: u32 = 96;
     // Crypto price strings ("104231.50000000" = 15 bytes). 32 covers fiat + headroom.
     global MAX_PLAINTEXT_LEN: u32 = 32;
-    // One field per quote: the price. The (provider, symbol) pair is committed via
-    // the URL allow-list: each allowed URL hash in the map represents one full
-    // symbol-bearing URL.
+    // One field per quote: the price. The (provider, symbol) pair is committed
+    // via the (URL, response_resolve) pair-hash allow-list: each slot binds
+    // both the full symbol-bearing URL AND its canonical parsePath bytes.
     global NUM_RESPONSE_RESOLVE: u32 = 1;
     // Hardcoded by attestation_verifier's signature.
     global NUM_REQUEST_URLS: u32 = 1;
@@ -79,12 +82,16 @@ pub contract QuoteVerifier {
 
     #[storage]
     struct Storage<Context> {
-        // Allow-list of permitted request URLs, keyed by the Poseidon2 hash of
-        // the URL bytes zero-padded to MAX_URL_LEN. A key present in the map
-        // (initialized to `true`) means that exact URL is accepted. Lookups
-        // from private context will revert with "Trying to read from
-        // uninitialized PublicImmutable" if the URL hash isn't in the map.
-        allowed_url_hashes: Map<Field, PublicImmutable<bool, Context>, Context>,
+        // Allow-list of permitted (request_url, response_resolve) PAIRS,
+        // keyed by `poseidon2_hash([url_hash, rr_hash])` where each inner
+        // hash is over the field's bytes zero-padded to its MAX_*_LEN. A key
+        // present in the map (initialized to `true`) means that exact
+        // (URL, parsePath) pair is accepted. Binding both prevents a
+        // submitter from requesting a different parsePath against an
+        // allow-listed URL and having it recorded as the canonical price.
+        // Lookups from private context revert with "Trying to read from
+        // uninitialized PublicImmutable" if the pair isn't in the map.
+        allowed_attestation_hashes: Map<Field, PublicImmutable<bool, Context>, Context>,
         // The single attestor whose signatures we accept. Stored as a packed PublicKey (4 Fields).
         allowed_attestor: PublicImmutable<PublicKey, Context>,
         // Per-attestation historical record, keyed by envelope.timestamp.
@@ -98,11 +105,13 @@ pub contract QuoteVerifier {
     #[initializer]
     #[external("public")]
     fn constructor(
-        allowed_url_hashes: [Field; NUM_ALLOWED_URLS_AT_DEPLOY],
+        allowed_attestation_hashes: [Field; NUM_ALLOWED_URLS_AT_DEPLOY],
         initial_attestor: PublicKey,
     ) {
         for i in 0..NUM_ALLOWED_URLS_AT_DEPLOY {
-            self.storage.allowed_url_hashes.at(allowed_url_hashes[i]).initialize(true);
+            self.storage.allowed_attestation_hashes.at(allowed_attestation_hashes[i]).initialize(
+                true,
+            );
         }
         self.storage.allowed_attestor.initialize(initial_attestor);
     }
@@ -112,9 +121,11 @@ pub contract QuoteVerifier {
     ///
     /// Cryptographic checks (envelope hash reconstruction, ECDSA signature,
     /// SHA256 content binding) compose the three `attestation_verifier`
-    /// primitives in canonical order. URL allow-list check is this contract's
-    /// policy: hash the request URL from the verified envelope and require
-    /// its hash to be in storage.
+    /// primitives in canonical order. Allow-list check is this contract's
+    /// policy: hash the (request_url, response_resolve) pair from the
+    /// verified envelope and require its pair-hash to be in storage. Binding
+    /// the response_resolve alongside the URL prevents a submitter from
+    /// requesting a different parsePath against an allow-listed URL.
     ///
     /// On success, enqueues a public call to `record_quote` which initializes
     /// the `historical_quotes` slot keyed by `envelope.timestamp`.
@@ -147,20 +158,31 @@ pub contract QuoteVerifier {
         verify_ecdsa_over_hash(attestor.x, attestor.y, signature, envelope_hash);
         bind_content_hashes(contents, envelope.data, data_hash_offsets);
 
-        // Compute the request URL's identity hash. Zero-pad explicitly to
-        // MAX_URL_LEN because BoundedVec's storage() can contain unconstrained
-        // bytes beyond len(); the off-chain hasher uses the same zero-padding.
-        let mut hash_input: [Field; MAX_URL_LEN] = [0; MAX_URL_LEN];
+        // Compute the (url, response_resolve) pair-hash that identifies this
+        // attestation in the allow-list. Zero-pad explicitly to each bound
+        // because BoundedVec's storage() can contain unconstrained bytes
+        // beyond len(); the off-chain hasher uses the same zero-padding.
+        let mut url_input: [Field; MAX_URL_LEN] = [0; MAX_URL_LEN];
         for j in 0..MAX_URL_LEN {
             if j < envelope.request_url.len() {
-                hash_input[j] = envelope.request_url.storage()[j] as Field;
+                url_input[j] = envelope.request_url.storage()[j] as Field;
             }
         }
-        let request_url_hash = poseidon2_hash(hash_input);
+        let request_url_hash = poseidon2_hash(url_input);
+
+        let mut rr_input: [Field; MAX_RR_LEN] = [0; MAX_RR_LEN];
+        for j in 0..MAX_RR_LEN {
+            if j < envelope.response_resolves[0].len() {
+                rr_input[j] = envelope.response_resolves[0].storage()[j] as Field;
+            }
+        }
+        let response_resolve_hash = poseidon2_hash(rr_input);
+
+        let attestation_hash = poseidon2_hash([request_url_hash, response_resolve_hash]);
 
         // Allow-list check: read() panics with "Trying to read from
-        // uninitialized PublicImmutable" if the URL hash isn't in the map.
-        let _allowed: bool = self.storage.allowed_url_hashes.at(request_url_hash).read();
+        // uninitialized PublicImmutable" if the pair isn't in the map.
+        let _allowed: bool = self.storage.allowed_attestation_hashes.at(attestation_hash).read();
 
         // Parse the signature-bound price string into a u128 fixed-point with
         // PRICE_DECIMALS precision.

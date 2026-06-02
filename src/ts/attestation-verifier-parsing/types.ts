@@ -50,6 +50,11 @@ export interface AttestationFile {
 export interface ParseConfig {
   maxResponseNum: number;
   allowedUrls: string[];
+  // Expected `keyName + parseType + parsePath` bytes per allowed URL, parallel
+  // to `allowedUrls`. The contract binds (url, response_resolve) pairs in the
+  // allow-list so a submitter can't request a different parsePath from the
+  // same allow-listed URL and have it recorded as the canonical price.
+  allowedResponseResolves: string[];
   maxUrlLen: number;
 }
 
@@ -59,6 +64,7 @@ export interface ParsedHashingData {
   signature: number[];
   requestUrls: number[][];
   allowedUrls: number[][];
+  allowedResponseResolves: number[][];
   plainJsonResponses: number[][];
   // Envelope fields - the circuit recomputes keccak256(envelope) from these and
   // binds them to the signature. Closes the soundness gap that the upstream lib

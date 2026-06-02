@@ -72,7 +72,7 @@ Defaults to the committed fixture at `src/ts/fixtures/binance-ETHUSDT.witness.js
 
 1. connects to `localhost:8080`
 2. loads the chosen witness
-3. derives `allowed_url_hashes` directly from `witness.allowedUrls` — the same 3 URLs across every claim because of the shared `verifier.json`
+3. derives `allowed_attestation_hashes` (pair-hashes of url + response_resolve) directly from `witness.allowedUrls` and `witness.allowedResponseResolves` — the same 3 (URL, parsePath) pairs across every claim because of the shared `verifier.json`
 4. extracts the attestor's secp256k1 pubkey from `witness.publicKeyX/Y` (the same key Primus signed with)
 5. deploys `QuoteVerifier` with the 3 URL hashes + the attestor pubkey (both `PublicImmutable`)
 6. calls `verify(...)` with the witness
@@ -131,7 +131,7 @@ Cached results are committed at `benchmarks/quote_verifier_base.benchmark.json`.
         ├── load-claim.ts                       merges per-provider claim + shared verifier
         ├── attestation-verifier-parsing/       local copy of Primus's TS parser (vendored from upstream's att_verifier_parsing/)
         ├── providers/
-        │   ├── verifier.json                   ← shared: mode/maxes/allowedUrls (all 3 providers)
+        │   ├── verifier.json                   ← shared: mode/maxes/allowed (URL, parsePath) pairs (all 3 providers)
         │   ├── binance/claim.json
         │   ├── okx/claim.json
         │   └── coinbase/claim.json
