@@ -11,10 +11,12 @@ mod types;
 /// the examples README for the full flow and trust model.
 #[aztec]
 pub contract OptionEscrowLogic {
-    use crate::types::core_note::EscrowCoreNote;
-    use crate::types::option_terms::{CoreTerms, QuoteTerms};
-    use crate::types::proposal_note::EscrowProposalNote;
-    use crate::types::quote_note::EscrowQuoteNote;
+    use crate::types::{
+        core_note::EscrowCoreNote,
+        option_terms::{CoreTerms, QuoteTerms},
+        proposal_note::EscrowProposalNote,
+        quote_note::EscrowQuoteNote,
+    };
 
     use aztec::{
         context::PrivateContext,
@@ -26,11 +28,12 @@ pub contract OptionEscrowLogic {
         utils::comparison::Comparator,
     };
     use escrow_standard::library::logic::{_get_escrow, _share_escrow, _withdraw};
+    use klines_oracle::{
+        types::{envelope::Envelope as OracleEnvelope, klines_candle::KlinesCandle},
+        KlinesOracle,
+    };
     use public_checks_contract::utils::privately_check_timestamp;
     use token::Token;
-    use klines_oracle::types::envelope::Envelope as OracleEnvelope;
-    use klines_oracle::types::klines_candle::KlinesCandle;
-    use klines_oracle::KlinesOracle;
 
     global ROLE_BUYER: u8 = 0;
     global ROLE_SELLER: u8 = 1;
