@@ -1,4 +1,4 @@
-# aztec-zktls-poc — Primus zkTLS quote PoC on Aztec
+# aztec-zktls — Primus zkTLS quote PoC on Aztec
 
 End-to-end demo of consuming an off-chain HTTPS data point inside an Aztec contract:
 

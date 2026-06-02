@@ -3,7 +3,7 @@
   "version": "4.3.0",
   "private": true,
   "description": "Primus zkTLS quote verifier PoC on Aztec",
-  "repository": "https://github.com/defi-wonderland/aztec-zktls-poc.git",
+  "repository": "https://github.com/defi-wonderland/aztec-zktls.git",
   "author": "Wonderland",
   "license": "MIT",
   "type": "module",

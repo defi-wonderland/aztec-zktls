@@ -8,10 +8,8 @@ Modified from [primus-labs/zktls-verification-noir](https://github.com/primus-la
 
 ```toml
 [dependencies]
-attestation_verifier = { git = "https://github.com/defi-wonderland/aztec-zktls-poc", tag = "vX.Y.Z", directory = "src/nr/attestation_verifier" }
+attestation_verifier = { git = "https://github.com/defi-wonderland/aztec-zktls", tag = "vX.Y.Z", directory = "src/nr/attestation_verifier" }
 ```
-
-(Repo rename to `aztec-zktls` pending — update the URL once it lands.)
 
 If you're consuming the lib from another crate inside *this* workspace, use a path dep instead. The bundled example at `src/nr/examples/quote_verifier/` uses `path = "../../attestation_verifier"`.
 
