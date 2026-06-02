@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { Barretenberg } from "@aztec/bb.js";
 import { Fr } from "@aztec/aztec.js/fields";
+import { createAztecNodeClient } from "@aztec/aztec.js/node";
+import { getPublicEvents } from "@aztec/aztec.js/events";
 import type { EmbeddedWallet } from "@aztec/wallets/embedded";
 import type { AccountManager } from "@aztec/aztec.js/wallet";
 import type { TxHash } from "@aztec/stdlib/tx";
@@ -195,4 +197,24 @@ export async function readQuoteAt(
     .get_quote_at(timestamp)
     .simulate({ from: caller.address });
   return sim.result as { price: bigint; timestamp: bigint };
+}
+
+/**
+ * Fetch the QuoteRecorded events emitted by a transaction. Emitted by
+ * `record_quote` whenever a new historical_quotes slot is initialized;
+ * duplicate-timestamp submissions do NOT re-emit.
+ */
+export async function fetchQuoteRecordedEvents(
+  contract: QuoteVerifierContract,
+  txHash: TxHash,
+): Promise<Array<{ event: { price: bigint; timestamp: bigint } }>> {
+  const node = createAztecNodeClient(NODE_URL);
+  const { events } = await getPublicEvents<{
+    price: bigint;
+    timestamp: bigint;
+  }>(node, QuoteVerifierContract.events.QuoteRecorded, {
+    txHash,
+    contractAddress: contract.address,
+  });
+  return events;
 }

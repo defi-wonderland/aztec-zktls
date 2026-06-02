@@ -13,6 +13,7 @@ import {
   loadWitness,
   deployAndVerify,
   readQuoteAt,
+  fetchQuoteRecordedEvents,
 } from "./utils.js";
 
 // Live end-to-end: spawn `yarn attest` against Primus DVC (real network call,
@@ -125,6 +126,12 @@ describe("QuoteVerifier E2E (live Primus attestation)", () => {
     );
     expect(quote.price).toBeGreaterThan(0n);
     expect(quote.timestamp).toBe(expectedTimestamp);
+
+    const events = await fetchQuoteRecordedEvents(contract, receipt.txHash);
+    console.log(`${tag} QuoteRecorded events: ${events.length}`);
+    expect(events.length).toBe(1);
+    expect(events[0]!.event.price).toBe(quote.price);
+    expect(events[0]!.event.timestamp).toBe(expectedTimestamp);
   }
 
   for (const c of CASES) {

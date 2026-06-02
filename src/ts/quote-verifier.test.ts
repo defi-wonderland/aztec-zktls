@@ -11,6 +11,7 @@ import {
   loadWitness,
   deployAndVerify,
   readQuoteAt,
+  fetchQuoteRecordedEvents,
 } from "./utils.js";
 
 // Default: load the committed fixture so this suite is fully offline.
@@ -74,5 +75,12 @@ describe("QuoteVerifier (cached witness)", () => {
     );
     expect(quote.price).toBeGreaterThan(0n);
     expect(quote.timestamp).toBe(expectedTimestamp);
+
+    // record_quote also emits a QuoteRecorded event with the same data.
+    const events = await fetchQuoteRecordedEvents(contract, receipt.txHash);
+    console.log(`[test] QuoteRecorded events: ${events.length}`);
+    expect(events.length).toBe(1);
+    expect(events[0]!.event.price).toBe(quote.price);
+    expect(events[0]!.event.timestamp).toBe(expectedTimestamp);
   }, 600_000);
 });

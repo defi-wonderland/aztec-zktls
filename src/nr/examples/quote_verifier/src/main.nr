@@ -27,10 +27,21 @@ pub contract QuoteVerifier {
     use crate::types::{Envelope, PublicKey, Quote};
     use attestation_verifier::{bind_content_hashes, derive_envelope_hash, verify_ecdsa_over_hash};
     use aztec::{
-        macros::{functions::{external, initializer, only_self, view}, storage::storage},
+        macros::{events::event, functions::{external, initializer, only_self, view}, storage::storage},
         protocol::hash::poseidon2_hash,
         state_vars::{Map, PublicImmutable},
     };
+
+    /// Emitted by `record_quote` whenever a new historical_quotes slot is
+    /// initialized. Off-chain indexers can subscribe to this to track "the
+    /// latest known quote" without an on-chain `latest_quote` slot.
+    /// Re-submissions of an already-recorded `timestamp` do NOT re-emit
+    /// (record_quote returns early via the `is_initialized()` guard).
+    #[event]
+    struct QuoteRecorded {
+        price: u128,
+        timestamp: u64,
+    }
 
     // Ticker URLs across Binance/OKX/Coinbase fit in 96 bytes after the query string.
     global MAX_URL_LEN: u32 = 96;
@@ -161,14 +172,16 @@ pub contract QuoteVerifier {
     /// stamping unverified quotes through this entry point.
     ///
     /// Writes `historical_quotes[timestamp].initialize(...)` only if that
-    /// timestamp slot was never written before. Duplicate timestamps from
-    /// replayed witnesses are silently skipped.
+    /// timestamp slot was never written before, and in that case also emits
+    /// a `QuoteRecorded` event. Duplicate timestamps from replayed witnesses
+    /// are silently skipped (no storage write, no event).
     #[external("public")]
     #[only_self]
     fn record_quote(price: u128, timestamp: u64) {
         let slot = self.storage.historical_quotes.at(timestamp as Field);
         if !slot.is_initialized() {
             slot.initialize(Quote { price, timestamp });
+            self.emit(QuoteRecorded { price, timestamp });
         }
     }
 

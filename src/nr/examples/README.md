@@ -75,6 +75,10 @@ historical_quotes: Map<Field, PublicImmutable<Quote, Context>, Context>,
 
 Public consumers (and tests) use the `get_quote_at(timestamp: u64) -> pub Quote` view function. Private consumers do `self.storage.historical_quotes.at(t).read()` directly.
 
+### `QuoteRecorded` event
+
+`record_quote` emits a `QuoteRecorded { price, timestamp }` public event whenever a new slot is initialized. This gives off-chain consumers an indexer-friendly subscription point — listening for `QuoteRecorded` is how you build a "latest quote" view without storing one on-chain. Re-submissions of an already-recorded timestamp do NOT re-emit (the `is_initialized()` guard short-circuits before the emit), so each `(price, timestamp)` shows up exactly once across the contract's lifetime.
+
 ### Why historical-only, no "latest_quote" view
 
 An earlier draft included a `latest_quote: DelayedPublicMutable<Quote, QUOTE_DELAY>` slot that updated on every `verify()`. We dropped it: `DelayedPublicMutable`'s delay applies to *all* readers (public and private), so a "latest" view backed by it was always at least `QUOTE_DELAY` seconds stale, which defeated the point of having a fresh-price view. The other primitive options each made the trade-off worse:
@@ -193,7 +197,7 @@ The QuoteVerifier contract verifies, end-to-end, **all inside the private circui
 2. **ECDSA signature** over the **derived** envelope hash, using the storage-pinned attestor pubkey. There is no witnessed `hash` to splice — the ECDSA check IS the binding from "signature" to "these specific witnessed envelope bytes." (Lib: `verify_ecdsa_over_hash`; see also [splice attack closure](../attestation_verifier/README.md#trust-model-closing-the-splice-attack).)
 3. **SHA256 content binding**: for each attested field, `sha256(content)` is computed in-circuit and asserted to appear (as 64-char hex) at a witness-provided offset inside the now-signature-bound `data` string. (Lib: `bind_content_hashes`.)
 4. **URL allow-list check** (contract policy, **not** lib): the contract hashes the signature-bound `envelope.request_url` (with explicit zero-padding to `MAX_URL_LEN`) and reads the corresponding slot in `allowed_url_hashes`. An uninitialized slot reverts; otherwise the URL is in the allow-list. Exact byte equality is structural — different URL bytes produce different Poseidon hashes.
-5. **Price parse + storage write**: the signature-bound content bytes are parsed in-circuit into a `u128` mantissa scaled to 8 decimals (reverts on non-digit bytes, multiple dots, or more than 8 fractional digits). An enqueued public call initializes `historical_quotes[envelope.timestamp]` with the `Quote { price, timestamp }`. Duplicate-timestamp submissions are silently skipped via `is_initialized()`.
+5. **Price parse + storage write**: the signature-bound content bytes are parsed in-circuit into a `u128` mantissa scaled to 8 decimals (reverts on non-digit bytes, multiple dots, or more than 8 fractional digits). An enqueued public call initializes `historical_quotes[envelope.timestamp]` with the `Quote { price, timestamp }` and emits a `QuoteRecorded` event. Duplicate-timestamp submissions are silently skipped via `is_initialized()` (no write, no event).
 
 The chain: `signature ⇒ derived envelope hash ⇒ specific envelope bytes ⇒ specific data string ⇒ specific SHA256 hex bytes ⇒ original content ⇒ parsed u128 price`, **plus** `envelope.request_url ⇒ specific Poseidon hash ⇒ allow-list membership`. Each ⇒ is a circuit constraint.
 

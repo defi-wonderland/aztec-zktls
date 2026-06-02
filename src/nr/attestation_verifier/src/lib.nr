@@ -14,8 +14,10 @@ use sha256::sha256_var;
 //
 // Three pure cryptographic primitives. The lib takes no policy positions about
 // URL matching, allow-lists, or which provider an attestation belongs to -
-// those are the consumer's call. The `verify_attestation` wrapper below
-// composes the three primitives in the canonical order.
+// those are the consumer's call. Consumers compose the three primitives in
+// the canonical order (derive -> ECDSA -> bind); see the lib README's
+// "Composition soundness" section and `examples/quote_verifier` for the
+// reference call sequence.
 
 /// Reconstruct `keccak256(encodePacked(envelope))` byte-for-byte. The output
 /// is what the Primus attestor signed; pair this with `verify_ecdsa_over_hash`
@@ -165,4 +167,3 @@ pub fn bind_content_hashes<let N: u32, let MAX_CONTENT_LEN: u32, let MAX_DATA_LE
         }
     }
 }
-
