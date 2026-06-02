@@ -7,8 +7,8 @@ Example consumers of the [`attestation_verifier`](../attestation_verifier/) lib.
 | Crate | What it shows | Provider used |
 |---|---|---|
 | [`quote_verifier/`](./quote_verifier/) | Spot-price attestation: lib primitives + URL allow-list + in-circuit price normalization + on-chain `historical_quotes` map. | Binance / OKX / Coinbase ticker endpoints |
-| [`zktls_klines_oracle/`](./zktls_klines_oracle/) | Admin-managed oracle for Binance klines candles. Prefix-match URL policy (base + caller-pinned query), six SHA256_EX-bound numeric fields parsed to a `KlinesCandle`. | Binance `/api/v3/klines` |
-| [`zktls_option_escrow/`](./zktls_option_escrow/) | American/European option escrow gated by `zktls_klines_oracle`. Lifecycle: `quote_option` → `subscribe` → (`exercise` \| `recover`). Per-option escrow + Core/Quote/Proposal notes. | (consumes the oracle) |
+| [`options/klines_oracle/`](./options/klines_oracle/) | Admin-managed oracle for Binance klines candles. Prefix-match URL policy (base + caller-pinned query), six SHA256_EX-bound numeric fields parsed to a `KlinesCandle`. | Binance `/api/v3/klines` |
+| [`options/option_escrow/`](./options/option_escrow/) | American/European option escrow gated by `klines_oracle`. Lifecycle: `quote_option` → `subscribe` → (`exercise` \| `recover`). Per-option escrow + Core/Quote/Proposal notes. | (consumes the oracle) |
 
 ## Running
 
@@ -107,7 +107,7 @@ Trust bottoms out at the attestor behaving honestly (Primus binary + Phala TEE) 
 
 ---
 
-# ZktlsKlinesOracle — design notes
+# KlinesOracle — design notes
 
 Admin-managed verifier that turns Primus zkTLS klines attestations into a parsed `KlinesCandle`. Pins the attestor pubkey and base URL prefix at deploy as `PublicImmutable` (no admin rotation — redeploy to change). Consumers pass a per-call `query_prefix` (e.g. `?symbol=ETHUSDT&interval=1m&`).
 
@@ -142,9 +142,9 @@ Each candle has six numeric fields the attestor SHA256_EX-binds: `openTime`, `op
 
 ---
 
-# ZktlsOptionEscrowLogic — design notes
+# OptionEscrowLogic — design notes
 
-Fully-collateralized American/European option contracts gated by `zktls_klines_oracle`. Each option instance lives in its own private `Escrow` (from `aztec-standards`) addressed by `(secret_key, this_address)`. State is three notes (Core/Quote/Proposal) keyed by the escrow address.
+Fully-collateralized American/European option contracts gated by `klines_oracle`. Each option instance lives in its own private `Escrow` (from `aztec-standards`) addressed by `(secret_key, this_address)`. State is three notes (Core/Quote/Proposal) keyed by the escrow address.
 
 Tech design: [Notion](https://www.notion.so/defi-wonderland/zkTLS-Option-Escrow-3669a4c092c78078a447c09fd8d3e5a6).
 

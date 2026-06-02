@@ -10,7 +10,7 @@ mod types;
 /// Lifecycle: `quote_option` -> `subscribe` -> (`exercise` | `recover`). See
 /// the examples README for the full flow and trust model.
 #[aztec]
-pub contract ZktlsOptionEscrowLogic {
+pub contract OptionEscrowLogic {
     use crate::types::core_note::EscrowCoreNote;
     use crate::types::option_terms::{CoreTerms, QuoteTerms};
     use crate::types::proposal_note::EscrowProposalNote;
@@ -28,9 +28,9 @@ pub contract ZktlsOptionEscrowLogic {
     use escrow_standard::library::logic::{_get_escrow, _share_escrow, _withdraw};
     use public_checks_contract::utils::privately_check_timestamp;
     use token::Token;
-    use zktls_klines_oracle::types::envelope::Envelope as OracleEnvelope;
-    use zktls_klines_oracle::types::klines_candle::KlinesCandle;
-    use zktls_klines_oracle::ZktlsKlinesOracle;
+    use klines_oracle::types::envelope::Envelope as OracleEnvelope;
+    use klines_oracle::types::klines_candle::KlinesCandle;
+    use klines_oracle::KlinesOracle;
 
     global ROLE_BUYER: u8 = 0;
     global ROLE_SELLER: u8 = 1;
@@ -250,7 +250,7 @@ pub contract ZktlsOptionEscrowLogic {
         assert_eq(query_prefix_hash, qt.pinned_query_prefix_hash, "query_prefix mismatch");
 
         // Oracle call: verifies attestation, returns the parsed candle.
-        let candle: KlinesCandle = ZktlsKlinesOracle::at(self.storage.oracle_address.read())
+        let candle: KlinesCandle = KlinesOracle::at(self.storage.oracle_address.read())
             .verify_klines_attestation(
                 signature,
                 envelope,

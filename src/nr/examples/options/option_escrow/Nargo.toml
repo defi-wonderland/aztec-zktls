@@ -1,5 +1,5 @@
 [package]
-name = "zktls_option_escrow"
+name = "option_escrow"
 type = "contract"
 compiler_version = ">=1.0.0"
 authors = [""]
@@ -9,4 +9,4 @@ aztec = { git = "https://github.com/AztecProtocol/aztec-packages/", tag = "v4.3.
 public_checks_contract = { git = "https://github.com/AztecProtocol/aztec-packages/", tag = "v4.3.0", directory = "noir-projects/noir-contracts/contracts/protocol/public_checks_contract" }
 escrow_standard = { git = "https://github.com/defi-wonderland/aztec-standards/", tag = "prerelease-eca9816", directory = "src/escrow_contract" }
 token = { git = "https://github.com/defi-wonderland/aztec-standards/", tag = "prerelease-eca9816", directory = "src/token_contract" }
-zktls_klines_oracle = { path = "../zktls_klines_oracle" }
+klines_oracle = { path = "../klines_oracle" }

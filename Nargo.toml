@@ -2,8 +2,8 @@
 members = [
     "src/nr/attestation_verifier",
     "src/nr/examples/quote_verifier",
-    "src/nr/examples/zktls_klines_oracle",
-    "src/nr/examples/zktls_option_escrow",
+    "src/nr/examples/options/klines_oracle",
+    "src/nr/examples/options/option_escrow",
 ]
 
 [benchmark]

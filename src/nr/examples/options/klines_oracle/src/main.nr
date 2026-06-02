@@ -11,12 +11,12 @@ pub mod types;
 /// `endTime` are not bound. Soundness depends on the consumer pinning the
 /// right query_prefix off-chain; see examples README.
 #[aztec]
-pub contract ZktlsKlinesOracle {
+pub contract KlinesOracle {
     use crate::types::base_url_prefix::{BaseUrlPrefix, MAX_BASE_URL_LEN};
     use crate::types::envelope::Envelope;
     use crate::types::klines_candle::KlinesCandle;
-    use crate::types::public_key::PublicKey;
     use crate::types::{parse_u64_decimal, parse_u64_price_8dp};
+    use crate::types::public_key::PublicKey;
     use attestation_verifier::{bind_content_hashes, derive_envelope_hash, verify_ecdsa_over_hash};
 
     use aztec::{
