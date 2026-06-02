@@ -85,7 +85,9 @@ Cached baseline: `benchmarks/quote_verifier_base.benchmark.json`.
     ├── nr/
     │   ├── attestation_verifier/               lib (modified from primus-labs/zktls-verification-noir)
     │   └── examples/
-    │       └── quote_verifier/                 example Aztec contract
+    │       ├── quote_verifier/                 ticker price verifier (Binance/OKX/Coinbase)
+    │       ├── zktls_klines_oracle/            Binance klines oracle (admin-managed)
+    │       └── zktls_option_escrow/            option escrow gated by the klines oracle
     └── ts/
         ├── attest.ts                           Primus pipeline → 3 JSONs
         ├── prepare-witness.ts                  raw.json → witness.json

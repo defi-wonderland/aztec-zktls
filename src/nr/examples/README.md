@@ -7,6 +7,8 @@ Example consumers of the [`attestation_verifier`](../attestation_verifier/) lib.
 | Crate | What it shows | Provider used |
 |---|---|---|
 | [`quote_verifier/`](./quote_verifier/) | Spot-price attestation: lib primitives + URL allow-list + in-circuit price normalization + on-chain `historical_quotes` map. | Binance / OKX / Coinbase ticker endpoints |
+| [`zktls_klines_oracle/`](./zktls_klines_oracle/) | Admin-managed oracle for Binance klines candles. Prefix-match URL policy (base + caller-pinned query), six SHA256_EX-bound numeric fields parsed to a `KlinesCandle`. | Binance `/api/v3/klines` |
+| [`zktls_option_escrow/`](./zktls_option_escrow/) | American/European option escrow gated by `zktls_klines_oracle`. Lifecycle: `quote_option` → `subscribe` → (`exercise` \| `recover`). Per-option escrow + Core/Quote/Proposal notes. | (consumes the oracle) |
 
 ## Running
 
@@ -102,3 +104,94 @@ Trust bottoms out at the attestor behaving honestly (Primus binary + Phala TEE) 
 **2. Allow-list + attestor are immutable.** Rotating the attestor key or amending the allow-list requires redeploy. A production version would want a delayed-mutable admin path.
 
 **3. No nullifier on signatures.** Re-submissions of the same signature don't double-write (`is_initialized()` guard) but still consume gas. Add a signature nullifier if that's a concern.
+
+---
+
+# ZktlsKlinesOracle — design notes
+
+Admin-managed verifier that turns Primus zkTLS klines attestations into a parsed `KlinesCandle`. Pins the attestor pubkey and base URL prefix at deploy as `PublicImmutable` (no admin rotation — redeploy to change). Consumers pass a per-call `query_prefix` (e.g. `?symbol=ETHUSDT&interval=1m&`).
+
+## Storage
+
+```noir
+attestor: PublicImmutable<PublicKey, Context>,
+base_url_prefix: PublicImmutable<BaseUrlPrefix, Context>,
+```
+
+`BaseUrlPrefix` is a fixed-length byte buffer + length (64 bytes capacity), packed into 4 Fields for the `PublicImmutable`.
+
+## URL policy: prefix match, not allow-list
+
+Klines URLs include variable suffixes (`startTime`, `endTime`) that the consumer can't enumerate at deploy — exact-equality (like QuoteVerifier's pair-hash) doesn't fit. Instead, the oracle asserts:
+
+```
+request_url[0..base.len + query.len] == base || query_prefix
+```
+
+with bytes past that boundary deliberately unconstrained. **Soundness lives one level up** in the consumer: it must commit to the canonical `query_prefix` off-chain (the option escrow stores `poseidon2_hash(query_prefix)` in its `QuoteNote` and checks it on exercise) so an arbitrary suffix can't be swapped at submit time.
+
+## Six bound fields
+
+Each candle has six numeric fields the attestor SHA256_EX-binds: `openTime`, `open`, `high`, `low`, `close`, `closeTime`. Prices parse to a `u64` scaled to 8 decimals; timestamps parse as `u64` ms. The contract is interval-agnostic (1m, 5m, 1h — all valid); the consumer checks `close_time - open_time + 1` against its expected interval.
+
+## What the oracle does NOT do
+
+- No symbol/interval/timing interpretation — those are consumer policy.
+- No allow-list of attestors — only the admin-pinned one is accepted.
+- No per-consumer state.
+
+---
+
+# ZktlsOptionEscrowLogic — design notes
+
+Fully-collateralized American/European option contracts gated by `zktls_klines_oracle`. Each option instance lives in its own private `Escrow` (from `aztec-standards`) addressed by `(secret_key, this_address)`. State is three notes (Core/Quote/Proposal) keyed by the escrow address.
+
+Tech design: [Notion](https://www.notion.so/defi-wonderland/zkTLS-Option-Escrow-3669a4c092c78078a447c09fd8d3e5a6).
+
+## Lifecycle
+
+```
+quote_option ──► subscribe ──► exercise   (option exercised in the money)
+                      │
+                      └─────► recover    (post-expiry unexercised, OR pending-cancel)
+```
+
+| Action | Caller | What flows |
+|---|---|---|
+| `quote_option` | proposer (buyer OR seller) | proposer's deposit → escrow. Writes Core+Quote+Proposal notes. Shares the escrow secret with both parties. |
+| `subscribe` | counterparty (whichever side is missing) | counterparty's deposit → escrow. Premium released escrow → seller. Proposal note nullified. |
+| `exercise` (buyer, in-the-money) | buyer | Settlement: buyer → seller. Locked collateral: escrow → buyer. |
+| `recover` (pending) | proposer | proposer's deposit reclaimed escrow → proposer. |
+| `recover` (post-expiry) | seller | seller's collateral reclaimed escrow → seller. |
+
+## Buyer / seller / call / put
+
+Call options: seller's collateral is `base_token`; buyer settles with `quote_token` to receive the base on exercise.
+Put options: seller's collateral is `quote_token`; buyer settles with `base_token` to receive the quote on exercise.
+
+The flavor (call/put) and side (buyer/seller) for the proposer determine which token + amount flows at each step.
+
+## Timing windows
+
+`CoreTerms.deadline` is the exercise cutoff. `is_american` flips the window semantics:
+
+- **American**: exercise must be strictly before `deadline`; candle must have finalized AND fall within `RECENCY_WINDOW_S` (10 min) of `now`.
+- **European**: exercise must be within `[deadline, deadline + LATE_EXERCISE_GRACE_S]` (24h grace); candle's `open_time` must straddle `deadline` within `SETTLEMENT_WINDOW_S` (5 min).
+
+`privately_check_timestamp` (from `public_checks_contract`) enforces these against `block.timestamp` from private context.
+
+## Exercise oracle binding
+
+At `quote_option`, the QuoteNote stores `pinned_query_prefix_hash = poseidon2_hash(query_prefix_padded_to_MAX_QUERY_PREFIX_LEN)`. At `exercise`, the buyer's claimed `query_prefix` must hash to the same value, then gets forwarded to the oracle. This binds **which feed** the option settles against — the buyer can't swap symbols at exercise time.
+
+The oracle's prefix-match URL policy + this consumer-side commitment is what makes the overall flow sound despite the oracle's unconstrained URL suffix.
+
+## Known limitations
+
+Inherits all of QuoteVerifier's limitations on the underlying attestation, plus:
+
+**4. Settlement requires a candle near `deadline`.** If no honest candle is attested within the European settlement window, the option can't be exercised — falls through to `recover`. American is more forgiving via `RECENCY_WINDOW_S`.
+
+**5. Strike check is midpoint-based.** Uses `(open + close) / 2` rather than a closing price or VWAP — fine for a PoC, but a real product would think harder about which candle field to use (close-only is more aligned with conventional options).
+
+**6. No partial fills or cancels post-subscribe.** Once subscribed, the only exits are `exercise` (if in-the-money + timing window holds) or `recover` (post-expiry unexercised).

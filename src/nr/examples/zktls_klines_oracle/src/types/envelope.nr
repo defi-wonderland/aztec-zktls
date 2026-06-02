@@ -1,8 +1,7 @@
 use aztec::protocol::traits::{Deserialize, Serialize};
 
-/// Signed Primus attestation payload. Field byte layout matches the
-/// `attestation_verifier` lib's `derive_envelope_hash` (and the off-chain
-/// `encodePacked` in `attestation-verifier-parsing/utils.ts`).
+/// Signed Primus attestation payload. Fields match the byte layout the
+/// `attestation_verifier` lib's `derive_envelope_hash` expects.
 #[derive(Deserialize, Serialize)]
 pub struct Envelope<let MAX_URL_LEN: u32, let MAX_HMB_LEN: u32, let N: u32, let MAX_RR_LEN: u32, let MAX_DATA_LEN: u32, let MAX_COND_LEN: u32, let MAX_PARAMS_LEN: u32> {
     pub recipient: [u8; 20],
