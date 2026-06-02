@@ -64,12 +64,8 @@ export function prepareWitness(
   });
 }
 
-/**
- * Filename pattern: "<provider>-<symbol>-<ISO-timestamp>.raw.json", e.g.
- * "okx-ETH-USDT-2026-06-01T12-53-43-147Z.raw.json". Split on `-` doesn't work
- * for hyphenated symbols ("ETH-USDT", "ETH-USD"); the ISO timestamp always
- * starts with a 4-digit year, so anchor the symbol capture there.
- */
+/** Parse "<provider>-<symbol>-<ISO-timestamp>.raw.json". ISO-anchored so
+ *  hyphenated symbols (`ETH-USD`, `ETH-USDT`) parse correctly. */
 function parseRawFilename(
   basename: string,
 ): { provider: string; symbol: string } | null {

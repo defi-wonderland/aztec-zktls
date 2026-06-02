@@ -1,42 +1,18 @@
-//! Primus zkTLS attestation verifier - Noir building blocks.
-//!
-//! Originally based on primus-labs/zktls-verification-noir (commit
-//! `65496b7b99879fc108b68bd7f08296225786a40c`). See README for the rationale
-//! on each local divergence (the in-circuit `keccak256(envelope)`
-//! reconstruction that closes upstream issue #9 is the main soundness fix).
+//! Primus zkTLS attestation verifier - three Noir cryptographic primitives.
+//! Based on primus-labs/zktls-verification-noir @ `65496b7`. See README for
+//! divergences (key one: in-circuit `keccak256(envelope)` reconstruction
+//! closing upstream issue #9). Compose in canonical order: derive -> ECDSA
+//! -> bind; see `examples/quote_verifier`.
 
 use keccak256::keccak256;
 use sha256::sha256_var;
 
-// =============================================================================
-// Building blocks
-// =============================================================================
-//
-// Three pure cryptographic primitives. The lib takes no policy positions about
-// URL matching, allow-lists, or which provider an attestation belongs to -
-// those are the consumer's call. Consumers compose the three primitives in
-// the canonical order (derive -> ECDSA -> bind); see the lib README's
-// "Composition soundness" section and `examples/quote_verifier` for the
-// reference call sequence.
-
-/// Reconstruct `keccak256(encodePacked(envelope))` byte-for-byte. The output
-/// is what the Primus attestor signed; pair this with `verify_ecdsa_over_hash`
-/// to bind the signature to a specific envelope without trusting a witnessed
-/// hash (closes upstream issue #9).
+/// Reconstruct `keccak256(encodePacked(envelope))` byte-for-byte - what the
+/// Primus attestor signed. Pair with `verify_ecdsa_over_hash` to bind the
+/// signature to specific envelope contents (closes upstream issue #9).
 ///
-/// Byte layout (matches Primus's `encodePacked`):
-///   recipient(20)
-///   || keccak256(request_urls[0] || request_hmb)
-///   || keccak256(response_resolves concat)
-///   || data
-///   || att_conditions
-///   || timestamp_be(8)
-///   || addition_params
-///
-/// `request_urls` is fixed at length 1 because Primus's `(1 URL -> 1 reveal)`
-/// unit means real attestations always carry exactly one request. The array
-/// shape is preserved for compatibility with the upstream lib and any future
-/// multi-request extension.
+/// `request_urls` is fixed at length 1: Primus's protocol unit is
+/// `(1 URL -> 1 reveal)`.
 pub fn derive_envelope_hash<let MAX_URL_LEN: u32, let MAX_HMB_LEN: u32, let N: u32, let MAX_RR_LEN: u32, let MAX_DATA_LEN: u32, let MAX_COND_LEN: u32, let MAX_PARAMS_LEN: u32>(
     recipient: [u8; 20],
     request_urls: [BoundedVec<u8, MAX_URL_LEN>; 1],
@@ -105,8 +81,7 @@ pub fn derive_envelope_hash<let MAX_URL_LEN: u32, let MAX_HMB_LEN: u32, let N: u
         }
     }
     env_len += att_conditions.len();
-    // Timestamp as 8-byte big-endian. Field::to_be_bytes returns the BE bytes
-    // of a Field; the u64 fits in the low 8 of the 32-byte representation.
+    // Timestamp BE - u64 in the low 8 of the 32-byte Field representation.
     let ts_be: [u8; 32] = (timestamp as Field).to_be_bytes();
     for i in 0..8 {
         env_buf[env_len + i] = ts_be[24 + i];
@@ -122,10 +97,8 @@ pub fn derive_envelope_hash<let MAX_URL_LEN: u32, let MAX_HMB_LEN: u32, let N: u
     keccak256(env_buf, env_len)
 }
 
-/// Verify an ECDSA-secp256k1 signature over `hash`. JUST the ECDSA check -
-/// the caller is responsible for ensuring `hash` came from a derived (not
-/// witnessed) source. Pair with `derive_envelope_hash` to bind the signature
-/// to specific envelope contents.
+/// ECDSA-secp256k1 check. Caller must ensure `hash` is derived, not witnessed
+/// - pair with `derive_envelope_hash` over the same envelope.
 pub fn verify_ecdsa_over_hash(
     public_key_x: [u8; 32],
     public_key_y: [u8; 32],
@@ -138,15 +111,12 @@ pub fn verify_ecdsa_over_hash(
     );
 }
 
-/// For each content, compute `sha256(content)` and assert its 64-char lowercase
-/// hex representation appears at `data_hash_offsets[i]` inside `data`.
+/// For each content, assert `sha256(content)`'s 64-char lowercase hex appears
+/// at `data_hash_offsets[i]` inside `data`.
 ///
-/// SOUNDNESS: `data` is unverified bytes from the caller's perspective. The
-/// caller MUST have established that `data` came from a signature-bound
-/// envelope (typically: pass `envelope.data` after `verify_ecdsa_over_hash`
-/// against a hash derived from that same envelope). Without that, this
-/// function proves nothing - the prover can choose any `data` and any
-/// `contents` whose hashes happen to match at the offsets.
+/// SOUNDNESS: `data` is unverified from this function's perspective. Caller
+/// MUST pass `envelope.data` AFTER `verify_ecdsa_over_hash` against a hash
+/// derived from that same envelope. Otherwise this function proves nothing.
 pub fn bind_content_hashes<let N: u32, let MAX_CONTENT_LEN: u32, let MAX_DATA_LEN: u32>(
     contents: [BoundedVec<u8, MAX_CONTENT_LEN>; N],
     data: BoundedVec<u8, MAX_DATA_LEN>,

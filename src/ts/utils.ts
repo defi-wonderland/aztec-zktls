@@ -17,13 +17,8 @@ export const MAX_URL_LEN = 96;
 /** Match the `MAX_RR_LEN` global in `src/nr/examples/quote_verifier/src/main.nr`. */
 export const MAX_RR_LEN = 48;
 
-/**
- * Poseidon2 hash of a UTF-8 URL, zero-padded to `maxLen` bytes per byte.
- * Mirrors the URL hashing the QuoteVerifier contract does in-circuit
- * over the request URL bytes (zero-padded to maxLen). Used as one half of
- * the pair-hash that keys `allowed_attestation_hashes` — see
- * `poseidon2HashAttestationPair`.
- */
+/** Poseidon2 hash of a UTF-8 URL, zero-padded to `maxLen`. Mirrors the
+ *  in-circuit hashing — see `poseidon2HashAttestationPair`. */
 export async function poseidon2HashUrl(
   bb: Barretenberg,
   url: string,
@@ -51,14 +46,9 @@ export async function hashAllowedUrls(
   return hashes;
 }
 
-/**
- * Poseidon2 hash of raw bytes (as the witness stores them), zero-padded.
- * Used to derive contract storage allow-list hashes directly from a witness,
- * so the test doesn't have to hardcode the URL / response_resolve strings.
- *
- * Mirrors the circuit's zero-padded `[Field; maxLen]` absorption, so off-chain
- * and in-circuit hashes match for any (bytes, maxLen) pair.
- */
+/** Poseidon2 hash of raw bytes, zero-padded to `maxLen`. Mirrors the
+ *  circuit's `[Field; maxLen]` absorption so off-chain and in-circuit
+ *  hashes match. */
 export async function poseidon2HashBytes(
   bb: Barretenberg,
   bytes: number[],
@@ -74,12 +64,8 @@ export async function poseidon2HashBytes(
   return BigInt(Fr.fromBuffer(Buffer.from(hashFr.hash)).toString());
 }
 
-/**
- * Compose the contract's allow-list slot key for one (url, response_resolve)
- * pair: poseidon2_hash([poseidon2_hash(url_bytes), poseidon2_hash(rr_bytes)]).
- * Binding both prevents a submitter from requesting a different parsePath
- * against an allow-listed URL and having it recorded as the canonical price.
- */
+/** Allow-list slot key for a (url, response_resolve) pair:
+ *  poseidon2_hash([poseidon2_hash(url), poseidon2_hash(rr)]). */
 export async function poseidon2HashAttestationPair(
   bb: Barretenberg,
   urlBytes: number[],
@@ -140,11 +126,8 @@ export type Witness = {
   dataHashOffsets: number[];
 };
 
-/**
- * Locate the most recent `.witness.json` under attestations/ matching the
- * given provider prefix (e.g. "binance-", "okx-", "coinbase-"). Pass undefined
- * to take the latest witness across all providers.
- */
+/** Most recent `.witness.json` under attestations/ matching `prefix`
+ *  (e.g. "binance-"). Undefined → latest across providers. */
 export function findLatestWitness(prefix?: string): string {
   const dir = path.resolve(import.meta.dirname, "../../attestations");
   if (!fs.existsSync(dir)) {
@@ -152,8 +135,7 @@ export function findLatestWitness(prefix?: string): string {
       `No attestations directory at ${dir}. Run \`yarn attest <provider> symbol=...\` first.`,
     );
   }
-  // Sort by mtime instead of filename — across providers, alphabetic ordering
-  // doesn't match chronological (`okx-...` > `coinbase-...` > `binance-...`).
+  // mtime-sort: filenames sort alphabetically by provider, not date.
   const files = fs
     .readdirSync(dir)
     .filter(
@@ -181,11 +163,8 @@ export function loadWitness(p: string): Witness {
 const DEPLOY_TIMEOUT = 300_000;
 const TX_TIMEOUT = 120_000;
 
-/**
- * Deploy a fresh QuoteVerifier (seeded with the witness's own pubkey as the
- * allowed attestor) and call `verify(...)` with the witness inputs. Returns
- * the deployed contract and the tx receipt for downstream assertions.
- */
+/** Deploy a fresh QuoteVerifier (seeded with the witness's pubkey + allow-list)
+ *  and call `verify(...)`. Returns contract + tx receipt. */
 export async function deployAndVerify(
   wallet: EmbeddedWallet,
   bb: Barretenberg,
@@ -240,12 +219,8 @@ export async function deployAndVerify(
   };
 }
 
-/**
- * Read the historical quote recorded at `timestamp` via the public view.
- * `PublicImmutable` writes from public context take effect immediately,
- * so this reflects the verified attestation as soon as the verify() tx
- * is included. Reverts if no quote was recorded at this timestamp.
- */
+/** Read `historical_quotes[timestamp]` via the public view. Reverts if no
+ *  quote was recorded at that timestamp. */
 export async function readQuoteAt(
   contract: QuoteVerifierContract,
   caller: AccountManager,
@@ -257,11 +232,8 @@ export async function readQuoteAt(
   return sim.result as { price: bigint; timestamp: bigint };
 }
 
-/**
- * Fetch the QuoteRecorded events emitted by a transaction. Emitted by
- * `record_quote` whenever a new historical_quotes slot is initialized;
- * duplicate-timestamp submissions do NOT re-emit.
- */
+/** Fetch QuoteRecorded events from a tx. One per new slot init; duplicates
+ *  don't re-emit. */
 export async function fetchQuoteRecordedEvents(
   contract: QuoteVerifierContract,
   txHash: TxHash,
