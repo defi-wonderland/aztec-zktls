@@ -29,8 +29,8 @@ pub contract OptionEscrowLogic {
     };
     use escrow_standard::library::logic::{_get_escrow, _share_escrow, _withdraw};
     use klines_oracle::{
-        types::{envelope::Envelope as OracleEnvelope, klines_candle::KlinesCandle},
         KlinesOracle,
+        types::{envelope::Envelope as OracleEnvelope, klines_candle::KlinesCandle},
     };
     use public_checks_contract::utils::privately_check_timestamp;
     use token::Token;
