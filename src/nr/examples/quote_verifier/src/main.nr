@@ -25,7 +25,7 @@ use aztec::macros::aztec;
 #[aztec]
 pub contract QuoteVerifier {
     use crate::types::{Envelope, PublicKey, Quote};
-    use attestation_verifier::verify_attestation;
+    use attestation_verifier::{bind_content_hashes, derive_envelope_hash, verify_ecdsa_over_hash};
     use aztec::{
         macros::{functions::{external, initializer, only_self, view}, storage::storage},
         protocol::hash::poseidon2_hash,
@@ -112,14 +112,13 @@ pub contract QuoteVerifier {
         // Read trusted attestor pubkey from storage.
         let attestor: PublicKey = self.storage.allowed_attestor.read();
 
-        // Cryptographic checks (all in-circuit): reconstruct keccak256(envelope),
-        // verify ECDSA against the derived hash, and bind each content's SHA256
-        // hex to the signed `data` string. After this returns, every envelope
-        // field is provably what the attestor signed.
-        verify_attestation(
-            attestor.x,
-            attestor.y,
-            signature,
+        // Cryptographic checks (all in-circuit), in the canonical order:
+        //   1. Reconstruct keccak256(envelope) from the witnessed fields.
+        //   2. ECDSA-verify the signature against the *derived* hash (binds
+        //      envelope fields to what the attestor actually signed).
+        //   3. Bind each content's SHA256 hex into the now-signature-bound
+        //      `data` string.
+        let envelope_hash = derive_envelope_hash(
             envelope.recipient,
             [envelope.request_url],
             envelope.request_hmb,
@@ -128,9 +127,9 @@ pub contract QuoteVerifier {
             envelope.att_conditions,
             envelope.timestamp,
             envelope.addition_params,
-            contents,
-            data_hash_offsets,
         );
+        verify_ecdsa_over_hash(attestor.x, attestor.y, signature, envelope_hash);
+        bind_content_hashes(contents, envelope.data, data_hash_offsets);
 
         // Compute the request URL's identity hash. Zero-pad explicitly to
         // MAX_URL_LEN because BoundedVec's storage() can contain unconstrained

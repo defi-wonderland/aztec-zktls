@@ -6,7 +6,7 @@ This directory holds example consumers of the [`attestation_verifier`](../attest
 
 | Crate | What it shows | Provider used |
 |---|---|---|
-| [`quote_verifier/`](./quote_verifier/) | Spot-price attestation: `verify_attestation` (cryptography) + contract-side URL allow-list via `Map<Field, PublicImmutable<bool>>` + in-circuit decimal-string price normalization recorded into `Map<Field, PublicImmutable<Quote>>` keyed by `envelope.timestamp`. | Binance / OKX / Coinbase ticker endpoints |
+| [`quote_verifier/`](./quote_verifier/) | Spot-price attestation: the lib's three crypto primitives composed in `verify` + contract-side URL allow-list via `Map<Field, PublicImmutable<bool>>` + in-circuit decimal-string price normalization recorded into `Map<Field, PublicImmutable<Quote>>` keyed by `envelope.timestamp`. | Binance / OKX / Coinbase ticker endpoints |
 
 ## Running an example
 
@@ -24,7 +24,7 @@ A TypeScript driver wires real Primus attestation payloads into each example —
 1. Create `src/nr/examples/<name>/` with a `Nargo.toml` and `src/main.nr`.
 2. Add `src/nr/examples/<name>` to the workspace members in the repo-root [`Nargo.toml`](../../../Nargo.toml).
 3. Depend on the lib via a path dep: `attestation_verifier = { path = "../../attestation_verifier" }`.
-4. The lib gives you three primitives + a canonical-order wrapper (`verify_attestation`). It takes no positions on URL matching, recipient identity, timestamp windows, etc. — implement those in the contract that wraps the verification call. The QuoteVerifier example below shows the canonical pattern (Map-based exact-equality URL hash lookup); other shapes (single pinned URL prefix, multi-tenant routing, no URL check at all) compose the same primitives differently.
+4. The lib gives you three primitives — `derive_envelope_hash`, `verify_ecdsa_over_hash`, `bind_content_hashes` — composed explicitly in your `verify` function. The lib takes no positions on URL matching, recipient identity, timestamp windows, etc. — implement those in the contract. The QuoteVerifier example below shows the canonical pattern (Map-based exact-equality URL hash lookup); other shapes (single pinned URL prefix, multi-tenant routing, no URL check at all) compose the same primitives differently.
 5. Add a row to the table above so consumers can find it.
 
 ---
@@ -101,7 +101,7 @@ The three providers emit prices as decimal strings with varying precision: Binan
 5. Asserts `decimals_seen <= PRICE_DECIMALS` (more would mean precision loss).
 6. Scales the mantissa up by `10 ** (PRICE_DECIMALS - decimals_seen)` using a compile-time-bounded loop.
 
-Reverts on: multiple decimal points, non-digit/non-dot bytes, or more than 8 fractional digits. The input must be the signature-bound `contents[i]` from `verify_attestation` (otherwise content binding wouldn't have happened and the bytes are not trusted).
+Reverts on: multiple decimal points, non-digit/non-dot bytes, or more than 8 fractional digits. The input must be the signature-bound `contents[i]` post-`bind_content_hashes` (otherwise content binding wouldn't have happened and the bytes are not trusted).
 
 ## Data-model choices
 
@@ -189,9 +189,9 @@ We default to `mpctls` so the same claim template can be reused for endpoints th
 
 The QuoteVerifier contract verifies, end-to-end, **all inside the private circuit**:
 
-1. **Envelope reconstruction**: the circuit reads the witness envelope fields (recipient, request URL, header+method+body, response resolves, `data`, attConditions, timestamp, additionParams) and rebuilds `keccak256(encodePacked(envelope))` byte-for-byte from Primus's `encodePacked` layout. (Lib: `derive_envelope_hash`, invoked via `verify_attestation`.)
-2. **ECDSA signature** over the **derived** envelope hash, using the storage-pinned attestor pubkey. There is no witnessed `hash` to splice — the ECDSA check IS the binding from "signature" to "these specific witnessed envelope bytes." (Lib: `verify_ecdsa_over_hash`, invoked via `verify_attestation`; see also [splice attack closure](../attestation_verifier/README.md#trust-model-closing-the-splice-attack).)
-3. **SHA256 content binding**: for each attested field, `sha256(content)` is computed in-circuit and asserted to appear (as 64-char hex) at a witness-provided offset inside the now-signature-bound `data` string. (Lib: `bind_content_hashes`, invoked via `verify_attestation`.)
+1. **Envelope reconstruction**: the circuit reads the witness envelope fields (recipient, request URL, header+method+body, response resolves, `data`, attConditions, timestamp, additionParams) and rebuilds `keccak256(encodePacked(envelope))` byte-for-byte from Primus's `encodePacked` layout. (Lib: `derive_envelope_hash`.)
+2. **ECDSA signature** over the **derived** envelope hash, using the storage-pinned attestor pubkey. There is no witnessed `hash` to splice — the ECDSA check IS the binding from "signature" to "these specific witnessed envelope bytes." (Lib: `verify_ecdsa_over_hash`; see also [splice attack closure](../attestation_verifier/README.md#trust-model-closing-the-splice-attack).)
+3. **SHA256 content binding**: for each attested field, `sha256(content)` is computed in-circuit and asserted to appear (as 64-char hex) at a witness-provided offset inside the now-signature-bound `data` string. (Lib: `bind_content_hashes`.)
 4. **URL allow-list check** (contract policy, **not** lib): the contract hashes the signature-bound `envelope.request_url` (with explicit zero-padding to `MAX_URL_LEN`) and reads the corresponding slot in `allowed_url_hashes`. An uninitialized slot reverts; otherwise the URL is in the allow-list. Exact byte equality is structural — different URL bytes produce different Poseidon hashes.
 5. **Price parse + storage write**: the signature-bound content bytes are parsed in-circuit into a `u128` mantissa scaled to 8 decimals (reverts on non-digit bytes, multiple dots, or more than 8 fractional digits). An enqueued public call initializes `historical_quotes[envelope.timestamp]` with the `Quote { price, timestamp }`. Duplicate-timestamp submissions are silently skipped via `is_initialized()`.
 

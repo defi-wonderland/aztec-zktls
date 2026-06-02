@@ -1,6 +1,6 @@
 # attestation_verifier
 
-Primus zkTLS attestation verifier — three Noir cryptographic primitives plus a thin canonical-order wrapper for proving a Primus-signed envelope is valid. Aztec-agnostic; usable in any Noir circuit.
+Primus zkTLS attestation verifier — three Noir cryptographic primitives for proving a Primus-signed envelope is valid. Aztec-agnostic; usable in any Noir circuit.
 
 Modified from [primus-labs/zktls-verification-noir](https://github.com/primus-labs/zktls-verification-noir) (commit `65496b7`). See [Divergences from upstream](#divergences-from-upstream) below; the biggest is the in-circuit `keccak256(envelope)` reconstruction that closes upstream [issue #9](https://github.com/primus-labs/zktls-verification-noir/issues/9).
 
@@ -19,9 +19,7 @@ The lib has **no aztec-nr dependency**. Direct deps are only `noir-lang/sha256@v
 
 ## API
 
-Three building blocks plus a canonical-order wrapper. The lib takes **no policy positions** — no URL matching, no allow-list, no recipient validation, no timestamp window. Consumers compose around these primitives.
-
-### Building blocks
+Three building blocks. The lib takes **no policy positions** — no URL matching, no allow-list, no recipient validation, no timestamp window. Consumers compose these primitives in the canonical order (see [Composition soundness](#composition-soundness) below).
 
 #### `derive_envelope_hash(...) -> [u8; 32]`
 
@@ -49,75 +47,47 @@ For each content `c[i]`, compute `sha256(c[i])` and assert its 64-character lowe
 
 **Soundness:** `data` is unverified bytes from this function's perspective. The caller MUST have established that `data` came from a signature-bound envelope (typically: pass `envelope.data` AFTER `verify_ecdsa_over_hash` against a hash derived from that same envelope). Without that ordering, the function proves nothing.
 
-### Convenience wrapper
-
-#### `verify_attestation(...)`
-
-Composes the three primitives in canonical order:
-
-1. `derive_envelope_hash(...)` → `hash`
-2. `verify_ecdsa_over_hash(pk, sig, hash)`
-3. `bind_content_hashes(contents, data, offsets)`
-
-Returns nothing. After it returns, every envelope field passed in is provably what the attestor signed, and each `contents[i]` is provably the plaintext whose SHA256 hex sits at `data_hash_offsets[i]` inside the signed `data`. Most consumers use this directly and layer their own policy (URL allow-list, recipient check, timestamp window) on top.
-
 ## Usage
 
-### Canonical: full cryptographic verification + your own policy
-
 ```noir
-use attestation_verifier::verify_attestation;
+use attestation_verifier::{bind_content_hashes, derive_envelope_hash, verify_ecdsa_over_hash};
 
-verify_attestation(
-    attestor_x, attestor_y, signature,
-    recipient, [request_url], request_hmb, response_resolves,
-    data, att_conditions, timestamp, addition_params,
-    contents, data_hash_offsets,
-);
-
-// After this returns: every envelope field above is signature-bound.
-// Now apply your own policy — URL allow-list, recipient identity, timestamp
-// window, anything else. See the QuoteVerifier example for the canonical
-// Map<Field, PublicImmutable<bool>> URL-hash lookup pattern.
-```
-
-### Lower-level: compose the building blocks directly
-
-If you need to interleave checks between the cryptographic steps, or skip the content-binding step entirely, call the primitives directly:
-
-```noir
-use attestation_verifier::{derive_envelope_hash, verify_ecdsa_over_hash, bind_content_hashes};
-
+// 1. Reconstruct keccak256(envelope) from the witnessed fields.
 let envelope_hash = derive_envelope_hash(
     recipient, [request_url], request_hmb, response_resolves,
     data, att_conditions, timestamp, addition_params,
 );
+
+// 2. ECDSA-verify the signature against the *derived* hash. After this returns,
+//    every envelope field is provably what the attestor signed.
 verify_ecdsa_over_hash(attestor_x, attestor_y, signature, envelope_hash);
 
-// At this point every envelope field is signature-bound. Insert any policy
-// check here if it should fail before content binding.
-
+// 3. Bind each content's SHA256 hex into the (now signature-bound) data string.
 bind_content_hashes(contents, data, data_hash_offsets);
+
+// Now apply your own policy — URL allow-list, recipient identity, timestamp
+// window, anything else. See the QuoteVerifier example for the canonical
+// Map<Field, PublicImmutable<bool>> URL-hash lookup pattern.
 ```
 
 ## Generic parameters reference
 
 | Parameter | Used by | Meaning |
 |---|---|---|
-| `MAX_URL_LEN` | `derive_envelope_hash`, `verify_attestation` | Max bytes per request URL |
-| `MAX_HMB_LEN` | `derive_envelope_hash`, `verify_attestation` | Max bytes of `request.header + method + body` concat |
-| `N` | `derive_envelope_hash`, `bind_content_hashes`, `verify_attestation` | Number of response-resolve fields per request |
-| `MAX_RR_LEN` | `derive_envelope_hash`, `verify_attestation` | Max bytes per `response_resolve` entry |
-| `MAX_CONTENT_LEN` | `bind_content_hashes`, `verify_attestation` | Max bytes per attested content value |
-| `MAX_DATA_LEN` | `derive_envelope_hash`, `bind_content_hashes`, `verify_attestation` | Max bytes of envelope's `data` JSON |
-| `MAX_COND_LEN` | `derive_envelope_hash`, `verify_attestation` | Max bytes of envelope's `att_conditions` |
-| `MAX_PARAMS_LEN` | `derive_envelope_hash`, `verify_attestation` | Max bytes of envelope's `addition_params` |
+| `MAX_URL_LEN` | `derive_envelope_hash` | Max bytes per request URL |
+| `MAX_HMB_LEN` | `derive_envelope_hash` | Max bytes of `request.header + method + body` concat |
+| `N` | `derive_envelope_hash`, `bind_content_hashes` | Number of response-resolve fields per request |
+| `MAX_RR_LEN` | `derive_envelope_hash` | Max bytes per `response_resolve` entry |
+| `MAX_CONTENT_LEN` | `bind_content_hashes` | Max bytes per attested content value |
+| `MAX_DATA_LEN` | `derive_envelope_hash`, `bind_content_hashes` | Max bytes of envelope's `data` JSON |
+| `MAX_COND_LEN` | `derive_envelope_hash` | Max bytes of envelope's `att_conditions` |
+| `MAX_PARAMS_LEN` | `derive_envelope_hash` | Max bytes of envelope's `addition_params` |
 
-`NUM_REQUEST_URLS` is fixed at 1 inside `derive_envelope_hash` (and therefore the wrapper) — see [Divergences](#divergences-from-upstream) point 4.
+`NUM_REQUEST_URLS` is fixed at 1 inside `derive_envelope_hash` — see [Divergences](#divergences-from-upstream) point 4.
 
 ## Composition soundness
 
-If you call the building blocks directly, the safe order is:
+The three primitives must be composed in this order:
 
 1. `derive_envelope_hash` — produces a derived hash of the envelope you're about to trust.
 2. `verify_ecdsa_over_hash` — binds the attestor's signature to that exact hash.
@@ -125,11 +95,11 @@ If you call the building blocks directly, the safe order is:
    - apply any policy check (URL match, recipient identity, timestamp window, etc.)
    - call `bind_content_hashes` against `envelope.data`
 
-Skipping or reordering this gives you a function that compiles but proves nothing. The wrapper enforces this composition for you.
+Skipping or reordering this gives you a function that compiles but proves nothing. The lib does not provide a wrapper that enforces the order — the composition is short enough (3 calls) that doing it explicitly in your consumer is clearer than hiding it behind a 14-parameter wrapper. See [`QuoteVerifier::verify`](../examples/quote_verifier/src/main.nr) for the canonical example.
 
 ## Hashing URLs from BoundedVec (consumer gotcha)
 
-A common consumer pattern after `verify_attestation`: hash the now-signature-bound request URL to compare against an allow-list of URL hashes in storage. There's a subtle trap when hashing a `BoundedVec<u8, MAX_URL_LEN>`.
+A common consumer pattern after running the three primitives: hash the now-signature-bound request URL to compare against an allow-list of URL hashes in storage. There's a subtle trap when hashing a `BoundedVec<u8, MAX_URL_LEN>`.
 
 **The trap:** `BoundedVec::storage()` returns the underlying `[u8; MAX_URL_LEN]` array, and bytes at positions `>= len()` are **witnessed values, not necessarily zero**. A prover could craft trailing bytes that produce a hash colliding with an allow-listed URL's hash if you feed `storage()` straight into a hash function.
 
@@ -173,7 +143,7 @@ This lib is based on upstream `main` at commit `65496b7b99879fc108b68bd7f0829622
 
 2. **`derive_envelope_hash` reconstructs `keccak256(envelope)` in-circuit.** Closes upstream issue [#9](https://github.com/primus-labs/zktls-verification-noir/issues/9) — see [Trust model](#trust-model-closing-the-splice-attack) above. Adds the `noir-lang/keccak256` dep.
 
-3. **Monolithic verifier split into three building blocks** — `derive_envelope_hash`, `verify_ecdsa_over_hash`, `bind_content_hashes`. The new `verify_attestation` wrapper composes them in canonical order with **no policy** baked in.
+3. **Monolithic verifier split into three building blocks** — `derive_envelope_hash`, `verify_ecdsa_over_hash`, `bind_content_hashes`. No wrapper: consumers compose them explicitly in their `verify` function (the canonical order is enforced by the type flow, not by a wrapping function).
 
 4. **`NUM_REQUEST_URLS` dropped from 2 to 1.** Primus's protocol unit is `(1 URL -> 1 reveal)` — see the multi-resolve discussion in the [examples README](../examples/README.md#dont-attest-multiple-fields-from-the-same-url-structural-limit-not-a-bug). Real attestations always carry exactly one request URL; lifting back to 2+ would also require multi-request handling in the off-chain `encodePacked` parser.
 
