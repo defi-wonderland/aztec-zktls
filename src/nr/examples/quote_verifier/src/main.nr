@@ -27,7 +27,11 @@ pub contract QuoteVerifier {
     use crate::types::{Envelope, PublicKey, Quote};
     use attestation_verifier::{bind_content_hashes, derive_envelope_hash, verify_ecdsa_over_hash};
     use aztec::{
-        macros::{events::event, functions::{external, initializer, only_self, view}, storage::storage},
+        macros::{
+            events::event,
+            functions::{external, initializer, only_self, view},
+            storage::storage,
+        },
         protocol::hash::poseidon2_hash,
         state_vars::{Map, PublicImmutable},
     };
@@ -107,9 +111,10 @@ pub contract QuoteVerifier {
     /// record the normalized price.
     ///
     /// Cryptographic checks (envelope hash reconstruction, ECDSA signature,
-    /// SHA256 content binding) run in `attestation_verifier::verify_attestation`.
-    /// URL allow-list check is this contract's policy: hash the request URL
-    /// from the verified envelope and require its hash to be in storage.
+    /// SHA256 content binding) compose the three `attestation_verifier`
+    /// primitives in canonical order. URL allow-list check is this contract's
+    /// policy: hash the request URL from the verified envelope and require
+    /// its hash to be in storage.
     ///
     /// On success, enqueues a public call to `record_quote` which initializes
     /// the `historical_quotes` slot keyed by `envelope.timestamp`.
