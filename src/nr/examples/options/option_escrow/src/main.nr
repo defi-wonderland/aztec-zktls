@@ -7,8 +7,9 @@ mod types;
 /// state is three notes (Core, Quote, Proposal) keyed by escrow address;
 /// Proposal note presence = "pending", absence = "active".
 ///
-/// Lifecycle: `quote_option` -> `subscribe` -> (`exercise` | `recover`). See
-/// the examples README for the full flow and trust model.
+/// Lifecycle: `quote_option` -> (`subscribe` | `recover_pending`);
+/// subscribed -> (`exercise` | `recover_expired`). See the examples README
+/// for the full flow and trust model.
 #[aztec]
 pub contract OptionEscrowLogic {
     use crate::types::{
@@ -341,70 +342,22 @@ pub contract OptionEscrowLogic {
         }
     }
 
-    /// Unified reclaim with two branches:
-    ///   - Pending (Proposal still exists): proposer reclaims their deposit.
-    ///   - Post-expiry unexercised: seller reclaims collateral (American:
-    ///     `now > deadline`; European: `now > deadline + grace`).
+    /// Cancel a pending option. Proposer reclaims their deposit. Reverts if
+    /// the Proposal note no longer exists (option already subscribed).
     #[external("private")]
-    fn recover(escrow: AztecAddress) {
+    fn recover_pending(escrow: AztecAddress) {
         let core = _find_core_note(self.storage, escrow);
         let qt = _find_quote_note(self.storage, escrow);
+        let proposal = _consume_proposal_note(self.storage, escrow);
 
-        let opts = NoteGetterOptions::new().set_limit(1);
-        let proposal_notes = self.storage.proposal_notes.at(escrow).get_notes(opts);
-
-        if proposal_notes.len() == 1 {
-            // Pending: consume the proposal note and return the proposer's deposit.
-            let proposal = proposal_notes.get_unchecked(0).note;
-            self.storage.proposal_notes.at(escrow).remove(proposal_notes.get_unchecked(0));
-
-            // Proposer's side is the OPPOSITE of `missing_side`.
-            if proposal.missing_side == ROLE_BUYER {
-                // Seller was proposer -> collateral.
-                if qt.is_call {
-                    _withdraw(
-                        self.context,
-                        escrow,
-                        proposal.proposer,
-                        core.base_token,
-                        core.base_amount,
-                    );
-                } else {
-                    _withdraw(
-                        self.context,
-                        escrow,
-                        proposal.proposer,
-                        core.quote_token,
-                        core.quote_amount,
-                    );
-                }
-            } else {
-                // Buyer was proposer -> premium.
-                _withdraw(
-                    self.context,
-                    escrow,
-                    proposal.proposer,
-                    core.quote_token,
-                    qt.premium_amount,
-                );
-            }
-        } else {
-            // Post-expiry unexercised: seller reclaims.
-            if qt.is_american {
-                privately_check_timestamp(Comparator.GT, core.deadline, self.context);
-            } else {
-                privately_check_timestamp(
-                    Comparator.GT,
-                    core.deadline + LATE_EXERCISE_GRACE_S,
-                    self.context,
-                );
-            }
-
+        // Proposer's side is the OPPOSITE of `missing_side`.
+        if proposal.missing_side == ROLE_BUYER {
+            // Seller was proposer -> collateral.
             if qt.is_call {
                 _withdraw(
                     self.context,
                     escrow,
-                    core.seller,
+                    proposal.proposer,
                     core.base_token,
                     core.base_amount,
                 );
@@ -412,11 +365,62 @@ pub contract OptionEscrowLogic {
                 _withdraw(
                     self.context,
                     escrow,
-                    core.seller,
+                    proposal.proposer,
                     core.quote_token,
                     core.quote_amount,
                 );
             }
+        } else {
+            // Buyer was proposer -> premium.
+            _withdraw(
+                self.context,
+                escrow,
+                proposal.proposer,
+                core.quote_token,
+                qt.premium_amount,
+            );
+        }
+    }
+
+    /// Reclaim collateral on a subscribed-but-unexercised option past its
+    /// flavor cutoff (American: `now > deadline`; European:
+    /// `now > deadline + grace`). Reverts if option is still pending.
+    #[external("private")]
+    fn recover_expired(escrow: AztecAddress) {
+        let core = _find_core_note(self.storage, escrow);
+        let qt = _find_quote_note(self.storage, escrow);
+
+        // Must not be pending.
+        let opts = NoteGetterOptions::new().set_limit(1);
+        let proposal_notes = self.storage.proposal_notes.at(escrow).get_notes(opts);
+        assert(proposal_notes.len() == 0, "option still pending; use recover_pending");
+
+        if qt.is_american {
+            privately_check_timestamp(Comparator.GT, core.deadline, self.context);
+        } else {
+            privately_check_timestamp(
+                Comparator.GT,
+                core.deadline + LATE_EXERCISE_GRACE_S,
+                self.context,
+            );
+        }
+
+        if qt.is_call {
+            _withdraw(
+                self.context,
+                escrow,
+                core.seller,
+                core.base_token,
+                core.base_amount,
+            );
+        } else {
+            _withdraw(
+                self.context,
+                escrow,
+                core.seller,
+                core.quote_token,
+                core.quote_amount,
+            );
         }
     }
 
