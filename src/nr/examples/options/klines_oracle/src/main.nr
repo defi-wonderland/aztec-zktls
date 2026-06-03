@@ -14,6 +14,10 @@ pub mod types;
 pub contract KlinesOracle {
     use crate::types::{
         base_url_prefix::{BaseUrlPrefix, MAX_BASE_URL_LEN},
+        bounds::{
+            MAX_COND_LEN, MAX_CONTENT_LEN, MAX_DATA_LEN, MAX_HMB_LEN, MAX_PARAMS_LEN,
+            MAX_QUERY_PREFIX_LEN, MAX_RR_LEN, MAX_URL_LEN, NUM_RESPONSE_RESOLVE,
+        },
         envelope::Envelope,
         klines_candle::KlinesCandle,
         parse_u64_decimal,
@@ -26,28 +30,6 @@ pub contract KlinesOracle {
         macros::{functions::{external, initializer, view}, storage::storage},
         state_vars::PublicImmutable,
     };
-
-    // ---------------------------- Bounds ----------------------------
-    /// Tight enough to fit any Binance klines request URL we'd emit.
-    /// `https://api.binance.com/api/v3/klines?symbol=XXXXXXXXXX&interval=1m&startTime=NNNNNNNNNNNNN&endTime=NNNNNNNNNNNNN`
-    /// ~= 128 bytes. 160 leaves headroom.
-    global MAX_URL_LEN: u32 = 160;
-    /// `query_prefix` example: `?symbol=ETHUSDT&interval=1m&` = 27 bytes.
-    /// 96 covers longer symbols (futures pairs etc.) with margin.
-    global MAX_QUERY_PREFIX_LEN: u32 = 96;
-    /// Decimal price strings ("104231.50000000") fit in <32 bytes; integer ms
-    /// timestamps ("1704067200000") fit too. 32 covers all six fields.
-    global MAX_CONTENT_LEN: u32 = 32;
-    /// Six numeric fields per candle: openTime, open, high, low, close, closeTime.
-    global NUM_RESPONSE_RESOLVE: u32 = 6;
-
-    // Per-attestation envelope-field bounds. Sized for klines responses with
-    // six SHA256_EX bindings (each binding ~85 bytes inside `data`).
-    global MAX_HMB_LEN: u32 = 16;
-    global MAX_RR_LEN: u32 = 64;
-    global MAX_DATA_LEN: u32 = 640;
-    global MAX_COND_LEN: u32 = 320;
-    global MAX_PARAMS_LEN: u32 = 32;
 
     // ---------------------------- Storage ----------------------------
     #[storage]

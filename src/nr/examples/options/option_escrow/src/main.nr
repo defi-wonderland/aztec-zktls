@@ -31,7 +31,14 @@ pub contract OptionEscrowLogic {
     use escrow_standard::library::logic::{_get_escrow, _share_escrow, _withdraw};
     use klines_oracle::{
         KlinesOracle,
-        types::{envelope::Envelope as OracleEnvelope, klines_candle::KlinesCandle},
+        types::{
+            bounds::{
+                MAX_COND_LEN, MAX_CONTENT_LEN, MAX_DATA_LEN, MAX_HMB_LEN, MAX_PARAMS_LEN,
+                MAX_QUERY_PREFIX_LEN, MAX_RR_LEN, MAX_URL_LEN, NUM_RESPONSE_RESOLVE,
+            },
+            envelope::Envelope as OracleEnvelope,
+            klines_candle::KlinesCandle,
+        },
     };
     use public_checks_contract::utils::privately_check_timestamp;
     use token::Token;
@@ -48,17 +55,6 @@ pub contract OptionEscrowLogic {
     global RECENCY_WINDOW_S: u64 = 10 * 60;
     /// European late-exercise grace after `deadline`.
     global LATE_EXERCISE_GRACE_S: u64 = 24 * 60 * 60;
-
-    // Oracle envelope dimensions - MUST match the oracle's globals byte-for-byte.
-    global MAX_URL_LEN: u32 = 160;
-    global MAX_QUERY_PREFIX_LEN: u32 = 96;
-    global MAX_CONTENT_LEN: u32 = 32;
-    global NUM_RESPONSE_RESOLVE: u32 = 6;
-    global MAX_HMB_LEN: u32 = 16;
-    global MAX_RR_LEN: u32 = 64;
-    global MAX_DATA_LEN: u32 = 640;
-    global MAX_COND_LEN: u32 = 320;
-    global MAX_PARAMS_LEN: u32 = 32;
 
     #[storage]
     struct Storage<Context> {
