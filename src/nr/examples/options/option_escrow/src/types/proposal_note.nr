@@ -2,7 +2,7 @@ use aztec::{macros::notes::note, protocol::{address::AztecAddress, traits::{Pack
 
 /// Per-option proposal-state marker.
 ///
-/// Written at quote time and nullified at subscribe. While this note exists,
+/// Written at offer time and nullified at subscribe. While this note exists,
 /// the option is "pending" (waiting for the counterparty to subscribe). Once
 /// nullified, the option is "active" (both sides committed, premium released).
 ///

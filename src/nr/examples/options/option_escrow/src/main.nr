@@ -4,19 +4,19 @@ mod types;
 /// American/European option escrow gated by zkTLS-attested Binance klines.
 /// Each option lives in its own private `Escrow` instance (from
 /// `aztec-standards`) addressed by `(secret_key, this_address)`. Per-option
-/// state is three notes (Core, Quote, Proposal) keyed by escrow address;
+/// state is three notes (Core, Offer, Proposal) keyed by escrow address;
 /// Proposal note presence = "pending", absence = "active".
 ///
-/// Lifecycle: `quote_option` -> (`subscribe` | `recover_pending`);
-/// subscribed -> (`exercise` | `recover_expired`). See the examples README
+/// Lifecycle: `offer` -> (`subscribe` | `cancel`);
+/// subscribed -> (`exercise` | `reclaim`). See the examples README
 /// for the full flow and trust model.
 #[aztec]
 pub contract OptionEscrowLogic {
     use crate::types::{
         core_note::EscrowCoreNote,
-        option_terms::{CoreTerms, QuoteTerms},
+        option_terms::{CoreTerms, OfferTerms},
         proposal_note::EscrowProposalNote,
-        quote_note::EscrowQuoteNote,
+        offer_note::EscrowOfferNote,
     };
 
     use aztec::{
@@ -62,7 +62,7 @@ pub contract OptionEscrowLogic {
         oracle_address: PublicImmutable<AztecAddress, Context>,
         // Per-option notes keyed by escrow address. Proposal existence = pending.
         core_notes: Owned<PrivateSet<EscrowCoreNote, Context>, Context>,
-        quote_notes: Owned<PrivateSet<EscrowQuoteNote, Context>, Context>,
+        offer_notes: Owned<PrivateSet<EscrowOfferNote, Context>, Context>,
         proposal_notes: Owned<PrivateSet<EscrowProposalNote, Context>, Context>,
     }
 
@@ -74,21 +74,21 @@ pub contract OptionEscrowLogic {
     }
 
     /// Initiate an option. Either side may propose; their deposit flows into
-    /// the escrow. Writes Core+Quote+Proposal notes. Requires an authwit for
+    /// the escrow. Writes Core+Offer+Proposal notes. Requires an authwit for
     /// the deposit transfer.
     #[external("private")]
-    fn quote_option(
+    fn offer(
         my_role: u8,
         counterparty: AztecAddress,
         core: CoreTerms,
-        quote_terms: QuoteTerms,
+        offer_terms: OfferTerms,
         secret_key: Field,
         deposit_nonce: Field,
     ) {
         assert((my_role == ROLE_BUYER) | (my_role == ROLE_SELLER), "invalid role");
 
-        // `quote` alone shadows Noir's `quote!{}` keyword - use `qt`.
-        let qt = quote_terms;
+        // Short alias for the offer terms / offer note throughout the body.
+        let terms = offer_terms;
         let me = self.msg_sender();
         let (buyer, seller) = if my_role == ROLE_BUYER {
             (me, counterparty)
@@ -110,10 +110,10 @@ pub contract OptionEscrowLogic {
             self.call(Token::at(core.quote_token).transfer_private_to_private(
                 me,
                 escrow,
-                qt.premium_amount,
+                terms.premium_amount,
                 deposit_nonce,
             ));
-        } else if qt.is_call {
+        } else if terms.is_call {
             self.call(Token::at(core.base_token).transfer_private_to_private(
                 me,
                 escrow,
@@ -142,14 +142,14 @@ pub contract OptionEscrowLogic {
             MessageDelivery.ONCHAIN_CONSTRAINED,
         );
 
-        let quote_note = EscrowQuoteNote {
-            premium_amount: qt.premium_amount,
-            strike: qt.strike,
-            is_call: qt.is_call,
-            is_american: qt.is_american,
-            pinned_query_prefix_hash: qt.pinned_query_prefix_hash,
+        let offer_note = EscrowOfferNote {
+            premium_amount: terms.premium_amount,
+            strike: terms.strike,
+            is_call: terms.is_call,
+            is_american: terms.is_american,
+            pinned_query_prefix_hash: terms.pinned_query_prefix_hash,
         };
-        self.storage.quote_notes.at(escrow).insert(quote_note).deliver(
+        self.storage.offer_notes.at(escrow).insert(offer_note).deliver(
             MessageDelivery.ONCHAIN_CONSTRAINED,
         );
 
@@ -177,7 +177,7 @@ pub contract OptionEscrowLogic {
     fn subscribe(escrow: AztecAddress, deposit_nonce: Field) {
         let me = self.msg_sender();
         let core = _find_core_note(self.storage, escrow);
-        let qt = _find_quote_note(self.storage, escrow);
+        let terms = _find_offer_note(self.storage, escrow);
         let proposal = _consume_proposal_note(self.storage, escrow);
 
         if proposal.missing_side == ROLE_BUYER {
@@ -191,10 +191,10 @@ pub contract OptionEscrowLogic {
             self.call(Token::at(core.quote_token).transfer_private_to_private(
                 me,
                 escrow,
-                qt.premium_amount,
+                terms.premium_amount,
                 deposit_nonce,
             ));
-        } else if qt.is_call {
+        } else if terms.is_call {
             self.call(Token::at(core.base_token).transfer_private_to_private(
                 me,
                 escrow,
@@ -216,7 +216,7 @@ pub contract OptionEscrowLogic {
             escrow,
             core.seller,
             core.quote_token,
-            qt.premium_amount,
+            terms.premium_amount,
         );
     }
 
@@ -236,7 +236,7 @@ pub contract OptionEscrowLogic {
     ) {
         let me = self.msg_sender();
         let core = _find_core_note(self.storage, escrow);
-        let qt = _find_quote_note(self.storage, escrow);
+        let terms = _find_offer_note(self.storage, escrow);
 
         assert_eq(me, core.buyer, "only buyer can exercise");
 
@@ -245,9 +245,9 @@ pub contract OptionEscrowLogic {
         let proposal_notes = self.storage.proposal_notes.at(escrow).get_notes(opts);
         assert(proposal_notes.len() == 0, "option not yet active");
 
-        // Buyer's claimed query_prefix must match what was pinned at quote time.
+        // Buyer's claimed query_prefix must match what was pinned at offer time.
         let query_prefix_hash = _hash_query_prefix(query_prefix);
-        assert_eq(query_prefix_hash, qt.pinned_query_prefix_hash, "query_prefix mismatch");
+        assert_eq(query_prefix_hash, terms.pinned_query_prefix_hash, "query_prefix mismatch");
 
         // Oracle call: verifies attestation, returns the parsed candle.
         let candle: KlinesCandle = KlinesOracle::at(self.storage.oracle_address.read())
@@ -270,7 +270,7 @@ pub contract OptionEscrowLogic {
         // `open_time` is ms at a minute boundary -> /1000 is exact seconds.
         let candle_open_s = candle.open_time / 1000;
 
-        if qt.is_american {
+        if terms.is_american {
             // Strictly before deadline; candle must have finalized AND be recent.
             privately_check_timestamp(Comparator.LTE, core.deadline, self.context);
             privately_check_timestamp(
@@ -300,14 +300,14 @@ pub contract OptionEscrowLogic {
 
         // Strike check on midpoint.
         let price = (candle.open_price + candle.close_price) / 2;
-        if qt.is_call {
-            assert(price >= qt.strike, "call not in the money");
+        if terms.is_call {
+            assert(price >= terms.strike, "call not in the money");
         } else {
-            assert(price <= qt.strike, "put not in the money");
+            assert(price <= terms.strike, "put not in the money");
         }
 
         // Movements: call -> buyer pays quote, gets base. Put -> reversed.
-        if qt.is_call {
+        if terms.is_call {
             self.call(Token::at(core.quote_token).transfer_private_to_private(
                 core.buyer,
                 core.seller,
@@ -341,15 +341,15 @@ pub contract OptionEscrowLogic {
     /// Cancel a pending option. Proposer reclaims their deposit. Reverts if
     /// the Proposal note no longer exists (option already subscribed).
     #[external("private")]
-    fn recover_pending(escrow: AztecAddress) {
+    fn cancel(escrow: AztecAddress) {
         let core = _find_core_note(self.storage, escrow);
-        let qt = _find_quote_note(self.storage, escrow);
+        let terms = _find_offer_note(self.storage, escrow);
         let proposal = _consume_proposal_note(self.storage, escrow);
 
         // Proposer's side is the OPPOSITE of `missing_side`.
         if proposal.missing_side == ROLE_BUYER {
             // Seller was proposer -> collateral.
-            if qt.is_call {
+            if terms.is_call {
                 _withdraw(
                     self.context,
                     escrow,
@@ -373,7 +373,7 @@ pub contract OptionEscrowLogic {
                 escrow,
                 proposal.proposer,
                 core.quote_token,
-                qt.premium_amount,
+                terms.premium_amount,
             );
         }
     }
@@ -382,16 +382,16 @@ pub contract OptionEscrowLogic {
     /// flavor cutoff (American: `now > deadline`; European:
     /// `now > deadline + grace`). Reverts if option is still pending.
     #[external("private")]
-    fn recover_expired(escrow: AztecAddress) {
+    fn reclaim(escrow: AztecAddress) {
         let core = _find_core_note(self.storage, escrow);
-        let qt = _find_quote_note(self.storage, escrow);
+        let terms = _find_offer_note(self.storage, escrow);
 
         // Must not be pending.
         let opts = NoteGetterOptions::new().set_limit(1);
         let proposal_notes = self.storage.proposal_notes.at(escrow).get_notes(opts);
-        assert(proposal_notes.len() == 0, "option still pending; use recover_pending");
+        assert(proposal_notes.len() == 0, "option still pending; use cancel");
 
-        if qt.is_american {
+        if terms.is_american {
             privately_check_timestamp(Comparator.GT, core.deadline, self.context);
         } else {
             privately_check_timestamp(
@@ -401,7 +401,7 @@ pub contract OptionEscrowLogic {
             );
         }
 
-        if qt.is_call {
+        if terms.is_call {
             _withdraw(
                 self.context,
                 escrow,
@@ -442,13 +442,13 @@ pub contract OptionEscrowLogic {
     }
 
     #[contract_library_method]
-    fn _find_quote_note(
+    fn _find_offer_note(
         storage: Storage<&mut PrivateContext>,
         escrow: AztecAddress,
-    ) -> EscrowQuoteNote {
+    ) -> EscrowOfferNote {
         let opts = NoteGetterOptions::new().set_limit(1);
-        let notes = storage.quote_notes.at(escrow).get_notes(opts);
-        assert(notes.len() == 1, "quote note not found");
+        let notes = storage.offer_notes.at(escrow).get_notes(opts);
+        assert(notes.len() == 1, "offer note not found");
         notes.get_unchecked(0).note
     }
 

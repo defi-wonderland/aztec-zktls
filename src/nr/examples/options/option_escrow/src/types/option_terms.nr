@@ -1,7 +1,7 @@
 use aztec::protocol::{address::AztecAddress, traits::{Deserialize, Serialize}};
 
-/// Sub-struct passed to `quote_option` for the Core note fields the proposer
-/// pins at quote time.
+/// Sub-struct passed to `offer` for the Core note fields the proposer
+/// pins at offer time.
 #[derive(Deserialize, Serialize)]
 pub struct CoreTerms {
     pub deadline: u64,
@@ -11,9 +11,9 @@ pub struct CoreTerms {
     pub quote_amount: u128,
 }
 
-/// Sub-struct passed to `quote_option` for the Quote note fields.
+/// Sub-struct passed to `offer` for the Quote note fields.
 #[derive(Deserialize, Serialize)]
-pub struct QuoteTerms {
+pub struct OfferTerms {
     pub premium_amount: u128,
     pub strike: u64,
     pub is_call: bool,

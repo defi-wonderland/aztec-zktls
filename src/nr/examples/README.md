@@ -8,7 +8,7 @@ Example consumers of the [`attestation_verifier`](../attestation_verifier/) lib.
 |---|---|---|
 | [`quote_verifier/`](./quote_verifier/) | Spot-price attestation: lib primitives + URL allow-list + in-circuit price normalization + on-chain `historical_quotes` map. | Binance / OKX / Coinbase ticker endpoints |
 | [`options/klines_oracle/`](./options/klines_oracle/) | Admin-managed oracle for Binance klines candles. Prefix-match URL policy (base + caller-pinned query), six SHA256_EX-bound numeric fields parsed to a `KlinesCandle`. | Binance `/api/v3/klines` |
-| [`options/option_escrow/`](./options/option_escrow/) | American/European option escrow gated by `klines_oracle`. Lifecycle: `quote_option` → `subscribe` → (`exercise` \| `recover`). Per-option escrow + Core/Quote/Proposal notes. | (consumes the oracle) |
+| [`options/option_escrow/`](./options/option_escrow/) | American/European option escrow gated by `klines_oracle`. Lifecycle: `offer` → `subscribe` → (`exercise` \| `recover`). Per-option escrow + Core/Offer/Proposal notes. | (consumes the oracle) |
 
 ## Running
 
@@ -128,7 +128,7 @@ Klines URLs include variable suffixes (`startTime`, `endTime`) that the consumer
 request_url[0..base.len + query.len] == base || query_prefix
 ```
 
-with bytes past that boundary deliberately unconstrained. **Soundness lives one level up** in the consumer: it must commit to the canonical `query_prefix` off-chain (the option escrow stores `poseidon2_hash(query_prefix)` in its `QuoteNote` and checks it on exercise) so an arbitrary suffix can't be swapped at submit time.
+with bytes past that boundary deliberately unconstrained. **Soundness lives one level up** in the consumer: it must commit to the canonical `query_prefix` off-chain (the option escrow stores `poseidon2_hash(query_prefix)` in its `OfferNote` and checks it on exercise) so an arbitrary suffix can't be swapped at submit time.
 
 ## Six bound fields
 
@@ -144,21 +144,21 @@ Each candle has six numeric fields the attestor SHA256_EX-binds: `openTime`, `op
 
 # OptionEscrowLogic — design notes
 
-Fully-collateralized American/European option contracts gated by `klines_oracle`. Each option instance lives in its own private `Escrow` (from `aztec-standards`) addressed by `(secret_key, this_address)`. State is three notes (Core/Quote/Proposal) keyed by the escrow address.
+Fully-collateralized American/European option contracts gated by `klines_oracle`. Each option instance lives in its own private `Escrow` (from `aztec-standards`) addressed by `(secret_key, this_address)`. State is three notes (Core/Offer/Proposal) keyed by the escrow address.
 
 Tech design: [Notion](https://www.notion.so/defi-wonderland/zkTLS-Option-Escrow-3669a4c092c78078a447c09fd8d3e5a6).
 
 ## Lifecycle
 
 ```
-quote_option ──► subscribe ──► exercise   (option exercised in the money)
+offer ──► subscribe ──► exercise   (option exercised in the money)
                       │
                       └─────► recover    (post-expiry unexercised, OR pending-cancel)
 ```
 
 | Action | Caller | What flows |
 |---|---|---|
-| `quote_option` | proposer (buyer OR seller) | proposer's deposit → escrow. Writes Core+Quote+Proposal notes. Shares the escrow secret with both parties. |
+| `offer` | proposer (buyer OR seller) | proposer's deposit → escrow. Writes Core+Offer+Proposal notes. Shares the escrow secret with both parties. |
 | `subscribe` | counterparty (whichever side is missing) | counterparty's deposit → escrow. Premium released escrow → seller. Proposal note nullified. |
 | `exercise` (buyer, in-the-money) | buyer | Settlement: buyer → seller. Locked collateral: escrow → buyer. |
 | `recover` (pending) | proposer | proposer's deposit reclaimed escrow → proposer. |
@@ -182,7 +182,7 @@ The flavor (call/put) and side (buyer/seller) for the proposer determine which t
 
 ## Exercise oracle binding
 
-At `quote_option`, the QuoteNote stores `pinned_query_prefix_hash = poseidon2_hash(query_prefix_padded_to_MAX_QUERY_PREFIX_LEN)`. At `exercise`, the buyer's claimed `query_prefix` must hash to the same value, then gets forwarded to the oracle. This binds **which feed** the option settles against — the buyer can't swap symbols at exercise time.
+At `offer`, the OfferNote stores `pinned_query_prefix_hash = poseidon2_hash(query_prefix_padded_to_MAX_QUERY_PREFIX_LEN)`. At `exercise`, the buyer's claimed `query_prefix` must hash to the same value, then gets forwarded to the oracle. This binds **which feed** the option settles against — the buyer can't swap symbols at exercise time.
 
 The oracle's prefix-match URL policy + this consumer-side commitment is what makes the overall flow sound despite the oracle's unconstrained URL suffix.
 

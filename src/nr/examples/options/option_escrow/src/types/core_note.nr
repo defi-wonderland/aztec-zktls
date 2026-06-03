@@ -2,7 +2,7 @@ use aztec::{macros::notes::note, protocol::{address::AztecAddress, traits::{Pack
 
 /// Per-option core terms.
 ///
-/// Stored once at quote time, read at exercise and recover. Captures the
+/// Stored once at offer time, read at exercise and recover. Captures the
 /// parties, the expiry, and the two-token movement amounts.
 ///
 /// We use a base/quote naming convention (base = underlying asset like ETH,
