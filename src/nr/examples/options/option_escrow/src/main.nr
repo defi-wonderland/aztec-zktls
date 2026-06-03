@@ -13,9 +13,7 @@ mod types;
 #[aztec]
 pub contract OptionEscrowLogic {
     use crate::types::{
-        option_note::EscrowOptionNote,
-        option_terms::OptionTerms,
-        proposal_note::EscrowProposalNote,
+        option_note::EscrowOptionNote, option_terms::OptionTerms, proposal_note::EscrowProposalNote,
     };
 
     use aztec::{
@@ -73,19 +71,19 @@ pub contract OptionEscrowLogic {
     /// the deposit transfer.
     #[external("private")]
     fn offer(
-        my_role: u8,
+        sender_role: u8,
         counterparty: AztecAddress,
         terms: OptionTerms,
         secret_key: Field,
         deposit_nonce: Field,
     ) {
-        assert((my_role == ROLE_BUYER) | (my_role == ROLE_SELLER), "invalid role");
+        assert((sender_role == ROLE_BUYER) | (sender_role == ROLE_SELLER), "invalid role");
 
-        let me = self.msg_sender();
-        let (buyer, seller) = if my_role == ROLE_BUYER {
-            (me, counterparty)
+        let sender = self.msg_sender();
+        let (buyer, seller) = if sender_role == ROLE_BUYER {
+            (sender, counterparty)
         } else {
-            (counterparty, me)
+            (counterparty, sender)
         };
 
         let escrow = _get_escrow(
@@ -98,23 +96,23 @@ pub contract OptionEscrowLogic {
 
         // Pull proposer's deposit. Buyer deposits premium (quote_token);
         // seller deposits collateral (base_token for call, quote_token for put).
-        if my_role == ROLE_BUYER {
+        if sender_role == ROLE_BUYER {
             self.call(Token::at(terms.quote_token).transfer_private_to_private(
-                me,
+                sender,
                 escrow,
                 terms.premium_amount,
                 deposit_nonce,
             ));
         } else if terms.is_call {
             self.call(Token::at(terms.base_token).transfer_private_to_private(
-                me,
+                sender,
                 escrow,
                 terms.base_amount,
                 deposit_nonce,
             ));
         } else {
             self.call(Token::at(terms.quote_token).transfer_private_to_private(
-                me,
+                sender,
                 escrow,
                 terms.quote_amount,
                 deposit_nonce,
@@ -140,8 +138,8 @@ pub contract OptionEscrowLogic {
         );
 
         let proposal_note = EscrowProposalNote {
-            proposer: me,
-            missing_side: if my_role == ROLE_BUYER {
+            proposer: sender,
+            missing_side: if sender_role == ROLE_BUYER {
                 ROLE_SELLER
             } else {
                 ROLE_BUYER
@@ -161,34 +159,34 @@ pub contract OptionEscrowLogic {
     /// Proposal note (option becomes active).
     #[external("private")]
     fn subscribe(escrow: AztecAddress, deposit_nonce: Field) {
-        let me = self.msg_sender();
+        let sender = self.msg_sender();
         let option = _find_option_note(self.storage, escrow);
         let proposal = _consume_proposal_note(self.storage, escrow);
 
         if proposal.missing_side == ROLE_BUYER {
-            assert_eq(me, option.buyer, "caller must be buyer");
+            assert_eq(sender, option.buyer, "caller must be buyer");
         } else {
-            assert_eq(me, option.seller, "caller must be seller");
+            assert_eq(sender, option.seller, "caller must be seller");
         }
 
         // Pull missing side's deposit (premium for buyer, collateral for seller).
         if proposal.missing_side == ROLE_BUYER {
             self.call(Token::at(option.quote_token).transfer_private_to_private(
-                me,
+                sender,
                 escrow,
                 option.premium_amount,
                 deposit_nonce,
             ));
         } else if option.is_call {
             self.call(Token::at(option.base_token).transfer_private_to_private(
-                me,
+                sender,
                 escrow,
                 option.base_amount,
                 deposit_nonce,
             ));
         } else {
             self.call(Token::at(option.quote_token).transfer_private_to_private(
-                me,
+                sender,
                 escrow,
                 option.quote_amount,
                 deposit_nonce,
@@ -219,10 +217,10 @@ pub contract OptionEscrowLogic {
         query_prefix: BoundedVec<u8, MAX_QUERY_PREFIX_LEN>,
         settlement_nonce: Field,
     ) {
-        let me = self.msg_sender();
+        let sender = self.msg_sender();
         let option = _find_option_note(self.storage, escrow);
 
-        assert_eq(me, option.buyer, "only buyer can exercise");
+        assert_eq(sender, option.buyer, "only buyer can exercise");
 
         // Option must be active (Proposal note nullified at subscribe).
         let opts = NoteGetterOptions::new().set_limit(1);

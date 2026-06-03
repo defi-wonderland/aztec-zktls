@@ -1,9 +1,6 @@
 use aztec::{
     macros::notes::note,
-    protocol::{
-        address::AztecAddress,
-        traits::{FromField, Packable, Serialize, ToField},
-    },
+    protocol::{address::AztecAddress, traits::{FromField, Packable, Serialize, ToField}},
 };
 
 /// Per-option full state. Written once at `offer` time; read at every
@@ -60,19 +57,10 @@ impl Packable for EscrowOptionNote {
         packed[5] = (self.premium_amount as Field) + (self.deadline as Field) * TWO_POW_128;
         packed[6] = (self.base_amount as Field) + (self.strike as Field) * TWO_POW_128;
         // Slot 7: u128 (lower 128 bits) + 2 bools (bits 128, 129). Max bits used: 130.
-        let is_call_f: Field = if self.is_call {
-            1
-        } else {
-            0
-        };
-        let is_american_f: Field = if self.is_american {
-            1
-        } else {
-            0
-        };
-        packed[7] = (self.quote_amount as Field)
-            + is_call_f * TWO_POW_128
-            + is_american_f * TWO_POW_129;
+        let is_call_f: Field = if self.is_call { 1 } else { 0 };
+        let is_american_f: Field = if self.is_american { 1 } else { 0 };
+        packed[7] =
+            (self.quote_amount as Field) + is_call_f * TWO_POW_128 + is_american_f * TWO_POW_129;
         packed
     }
 
