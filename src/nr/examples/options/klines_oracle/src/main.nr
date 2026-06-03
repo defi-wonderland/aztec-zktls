@@ -1,5 +1,7 @@
 use aztec::macros::aztec;
+pub mod constants;
 pub mod types;
+pub mod utils;
 
 /// Admin-managed verifier for Primus zkTLS klines attestations. Pins
 /// (attestor pubkey, base URL) at deploy; consumers commit a per-call
@@ -12,18 +14,17 @@ pub mod types;
 /// right query_prefix off-chain; see examples README.
 #[aztec]
 pub contract KlinesOracle {
+    use crate::constants::{
+        MAX_COND_LEN, MAX_CONTENT_LEN, MAX_DATA_LEN, MAX_HMB_LEN, MAX_PARAMS_LEN,
+        MAX_QUERY_PREFIX_LEN, MAX_RR_LEN, MAX_URL_LEN, NUM_RESPONSE_RESOLVE,
+    };
     use crate::types::{
         base_url_prefix::{BaseUrlPrefix, MAX_BASE_URL_LEN},
-        bounds::{
-            MAX_COND_LEN, MAX_CONTENT_LEN, MAX_DATA_LEN, MAX_HMB_LEN, MAX_PARAMS_LEN,
-            MAX_QUERY_PREFIX_LEN, MAX_RR_LEN, MAX_URL_LEN, NUM_RESPONSE_RESOLVE,
-        },
         envelope::Envelope,
         klines_candle::KlinesCandle,
-        parse_u64_decimal,
-        parse_u64_price_8dp,
         public_key::PublicKey,
     };
+    use crate::utils::{parse_u64_decimal, parse_u64_price_8dp};
     use attestation_verifier::{bind_content_hashes, derive_envelope_hash, verify_ecdsa_over_hash};
 
     use aztec::{

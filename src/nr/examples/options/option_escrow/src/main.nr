@@ -14,9 +14,9 @@ mod types;
 pub contract OptionEscrowLogic {
     use crate::types::{
         core_note::EscrowCoreNote,
+        offer_note::EscrowOfferNote,
         option_terms::{CoreTerms, OfferTerms},
         proposal_note::EscrowProposalNote,
-        offer_note::EscrowOfferNote,
     };
 
     use aztec::{
@@ -31,14 +31,11 @@ pub contract OptionEscrowLogic {
     use escrow_standard::library::logic::{_get_escrow, _share_escrow, _withdraw};
     use klines_oracle::{
         KlinesOracle,
-        types::{
-            bounds::{
-                MAX_COND_LEN, MAX_CONTENT_LEN, MAX_DATA_LEN, MAX_HMB_LEN, MAX_PARAMS_LEN,
-                MAX_QUERY_PREFIX_LEN, MAX_RR_LEN, MAX_URL_LEN, NUM_RESPONSE_RESOLVE,
-            },
-            envelope::Envelope as OracleEnvelope,
-            klines_candle::KlinesCandle,
+        constants::{
+            MAX_COND_LEN, MAX_CONTENT_LEN, MAX_DATA_LEN, MAX_HMB_LEN, MAX_PARAMS_LEN,
+            MAX_QUERY_PREFIX_LEN, MAX_RR_LEN, MAX_URL_LEN, NUM_RESPONSE_RESOLVE,
         },
+        types::{envelope::Envelope as OracleEnvelope, klines_candle::KlinesCandle},
     };
     use public_checks_contract::utils::privately_check_timestamp;
     use token::Token;
