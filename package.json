@@ -32,6 +32,7 @@
     "@aztec/bb.js": "4.3.0",
     "@aztec/wallets": "4.3.0",
     "@defi-wonderland/aztec-benchmark": "4.3.0",
+    "@defi-wonderland/aztec-standards": "https://github.com/defi-wonderland/aztec-standards/releases/download/prerelease-eca9816/defi-wonderland-aztec-standards-4.2.0-prerelease.eca9816.tgz",
     "@noble/curves": "^1.6.0",
     "@noble/hashes": "^1.5.0",
     "@primuslabs/network-core-sdk": "^0.1.5",

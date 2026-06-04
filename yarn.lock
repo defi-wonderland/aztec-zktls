@@ -1101,6 +1101,10 @@
     tsx "4.19.4"
     typescript "5.8.3"
 
+"@defi-wonderland/aztec-standards@https://github.com/defi-wonderland/aztec-standards/releases/download/prerelease-eca9816/defi-wonderland-aztec-standards-4.2.0-prerelease.eca9816.tgz":
+  version "4.2.0-prerelease.eca9816"
+  resolved "https://github.com/defi-wonderland/aztec-standards/releases/download/prerelease-eca9816/defi-wonderland-aztec-standards-4.2.0-prerelease.eca9816.tgz#844098c1b363985c172d945723f32f33fbda5136"
+
 "@esbuild/aix-ppc64@0.25.0":
   version "0.25.0"
   resolved "https://registry.yarnpkg.com/@esbuild/aix-ppc64/-/aix-ppc64-0.25.0.tgz#499600c5e1757a524990d5d92601f0ac3ce87f64"
