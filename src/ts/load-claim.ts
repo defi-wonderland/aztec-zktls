@@ -24,15 +24,30 @@ export type Claim = {
   verifier: ClaimVerifier;
 };
 
-function interpolate(template: string, params: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (_, k) => {
-    if (!(k in params)) {
-      throw new Error(
-        `Missing param '${k}'. Pass it on the CLI as ${k}=<value>.`,
-      );
-    }
-    return params[k]!;
-  });
+/** Walk a parsed JSON value and substitute `{key}` placeholders inside any
+ *  string leaf with `params[key]`. Operating on the parsed structure (not the
+ *  raw JSON text) means a value containing `"`, `\`, or newlines can't escape
+ *  its string slot and inject extra fields. */
+function deepInterpolate<T>(value: T, params: Record<string, string>): T {
+  if (typeof value === "string") {
+    return value.replace(/\{(\w+)\}/g, (_, k) => {
+      if (!(k in params)) {
+        throw new Error(
+          `Missing param '${k}'. Pass it on the CLI as ${k}=<value>.`,
+        );
+      }
+      return params[k]!;
+    }) as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => deepInterpolate(v, params)) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, deepInterpolate(v, params)]),
+    ) as T;
+  }
+  return value;
 }
 
 /**
@@ -59,12 +74,13 @@ export function loadClaim(
   const claimRaw = fs.readFileSync(claimPath, "utf8");
   const verifierRaw = fs.readFileSync(verifierPath, "utf8");
 
-  const claimBody = JSON.parse(interpolate(claimRaw, params)) as Omit<
+  const claimBody = deepInterpolate(JSON.parse(claimRaw), params) as Omit<
     Claim,
     "verifier"
   >;
-  const verifier = JSON.parse(
-    interpolate(verifierRaw, params),
+  const verifier = deepInterpolate(
+    JSON.parse(verifierRaw),
+    params,
   ) as ClaimVerifier & { _comment?: string };
   delete verifier._comment;
 
