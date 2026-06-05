@@ -9,7 +9,7 @@ import type {
 export function encodePacked(publicData: AttestationData): number[] {
   const out: number[] = [];
 
-  out.push(...Buffer.from(publicData.recipient.slice(2), "hex"));
+  out.push(...parseRecipient(publicData.recipient));
 
   // `header` can arrive as either a string (Primus normalizes claim objects
   // before signing) or a Record — match `parseRequestHmb`'s normalization so
@@ -107,6 +107,9 @@ export function parseRequestUrls(
 ): number[][] {
   const requestArray = Array.isArray(requests) ? requests : [requests];
 
+  if (requestArray.length === 0) {
+    throw new Error("parseRequestUrls: at least one request is required");
+  }
   if (requestArray.length > maxResponseNum) {
     throw new Error(
       `Request length (${requestArray.length}) exceeds maxResponseNum (${maxResponseNum})`,
