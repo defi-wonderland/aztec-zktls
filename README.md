@@ -1,224 +1,83 @@
-# Aztec Noir Boilerplate
+# aztec-zktls
 
-<div align="center"><strong>Start your next Aztec project with Noir in seconds</strong></div>
-<div align="center">A highly scalable foundation for building privacy-preserving smart contracts on Aztec</div>
+> Verifying and consuming [Primus Labs](https://primuslabs.xyz) zkTLS attestations inside an Aztec private circuit.
 
-<br />
+TEE-backed Primus attestors observe HTTPS traffic and sign a structured envelope binding the request URL to a SHA256 hash of the extracted response field. This repo verifies that envelope inside an Aztec contract — secp256k1 over an in-circuit-reconstructed `keccak256(envelope)`, an allow-listed `(URL, parsePath)` pair, the SHA256 binding of each attested field — and exposes the verified result on-chain for downstream consumers.
 
-## Features
+## Scope
 
-<dl>
-  <dt>Sample Noir contract</dt>
-  <dd>Basic Counter contract demonstrating private-to-public execution patterns and owner access control.</dd>
+Two parallel workstreams, sharing the same attestation primitives.
 
-  <dt>Aztec development setup</dt>
-  <dd>Pre-configured Aztec workspace with Noir contract compilation and TypeScript artifact generation.</dd>
+### Library — `attestation_verifier`
 
-  <dt>TypeScript integration</dt>
-  <dd>Complete TypeScript setup with generated contract bindings and utilities for interacting with Aztec sandbox.</dd>
+Adapted from [primus-labs/zktls-verification-noir](https://github.com/primus-labs/zktls-verification-noir) with documented divergences. Exposes three primitives consumers compose:
 
-  <dt>Comprehensive testing</dt>
-  <dd>Noir unit tests for contract logic and TypeScript integration tests using Vitest. Tests automatically start and manage the Aztec sandbox - no manual setup required.</dd>
+- `derive_envelope_hash(envelope)` — in-circuit `keccak256` reconstruction from raw envelope fields
+- `verify_ecdsa_over_hash(pk_x, pk_y, sig, hash)` — secp256k1 against a storage-pinned attestor pubkey
+- `bind_content_hashes(data, contents, offsets)` — asserts each `sha256(content)` hex appears at the witnessed offset inside the signed `data` string
 
-  <dt>Automated benchmarking</dt>
-  <dd>GitHub Actions workflow that automatically benchmarks your contracts on every PR, comparing Gates, DA Gas and L2 Gas against the base branch.</dd>
+Closes the upstream splice attack ([issue #9](https://github.com/primus-labs/zktls-verification-noir/issues/9)) by binding the hash to the envelope contents in-circuit instead of accepting it as a free witness.
 
-  <dt>Development tooling</dt>
-  <dd>Integrated linting with Prettier and streamlined build commands for rapid development.</dd>
-</dl>
+### Spot-price verifier — `quote_verifier` _(branch: `feat/initial-poc`)_
+
+A generic ticker-price verifier for Binance, OKX, and Coinbase. One deployed contract accepts attestations from all three providers; the (URL, parsePath) allow-list is pinned at deploy as Poseidon2 pair-hashes. Each successful verification parses the attested decimal price into a `u128` (scaled by `PRICE_DECIMALS = 8`) and writes a `Quote { price, timestamp }` to a public `historical_quotes` map readable from both public and private context.
+
+```
+exchange ticker URL → Primus attestor (MPC-TLS or proxy-TLS) → signed envelope
+       → off-chain Noir witness prep → Aztec private circuit
+       → on-chain `historical_quotes` write + `QuoteRecorded` event
+```
+
+### Option escrow — `option_escrow` + `klines_oracle` _(branch: `feat/option-escrow`)_
+
+An American/European option escrow that gates exercise on a zkTLS-attested price. The writer locks the underlying in a per-option escrow address; the buyer pays a premium up front and gets the right to exercise inside the option's window if the attested price hits the strike. Both call and put directions are supported; after the deadline (+ grace for european), the writer reclaims via clawback.
+
+The escrow reads its price feed from a `klines_oracle` contract — a sister verifier specialised for Binance 1-minute OHLC candles with in-circuit timing-window checks. Exercise calls into the oracle directly inside the escrow's `exercise` function — no separate verifier deployment, no event-log scan.
 
 ## Setup
 
-1. Install Aztec by following the instructions from [their documentation](https://docs.aztec.network/developers/getting_started).
-2. Install the dependencies by running: `yarn install`
+```bash
+# Install Aztec — https://docs.aztec.network/developers/getting_started
+yarn install
+yarn ccc   # clean + compile noir + codegen TS bindings
+```
 
-## Build
+## Tests
 
-The complete build pipeline includes cleaning, compiling Noir contracts, and generating TypeScript artifacts:
+Each workstream has its own suite. The tests auto-start a local sandbox where applicable; end-to-end tests against `aztec start --local-network` need that running separately.
 
 ```bash
-yarn ccc
+yarn test       # noir + ts
+yarn test:nr    # noir only
+yarn test:js    # ts only (some suites need `aztec start --local-network`)
+yarn test:e2e   # ts e2e — gated by RUN_E2E=1, hits Base Sepolia via Primus
 ```
 
-This runs:
-- `yarn clean` - Removes all build artifacts
-- `yarn compile` - Compiles Noir contracts using aztec
-- `yarn codegen` - Generates TypeScript bindings from compiled contracts
+E2E runs cost a few cents in Base Sepolia testnet gas per attestation.
 
-## Running tests
-
-### Prerequisites
-The tests **automatically start and manage the Aztec sandbox** for you. 
-
-**Option 1: Automatic**
-Just run the tests and the sandbox will be handled automatically:
+## Benchmarks
 
 ```bash
-yarn test  # Sandbox starts automatically and stops when tests complete
+yarn bench
 ```
 
-**Option 2: Manual Control** 
-If you prefer to manage the sandbox yourself (e.g., for debugging or multiple test runs):
+Cached baselines live under `benchmarks/`. CI auto-benchmarks every PR against `dev` and posts a comparison comment.
 
-```bash
-aztec start --sandbox  # Start manually in separate terminal
-yarn test              # Run tests against existing sandbox
-```
-
-The sandbox runs on `http://localhost:8080` by default.
-
-### All tests
-Run both Noir contract tests and TypeScript integration tests:
-
-```bash
-yarn test
-```
-
-### Noir tests only
-Test your contract logic directly:
-
-```bash
-yarn test:nr
-```
-
-### TypeScript integration tests only
-Test contract interactions through TypeScript:
-
-```bash
-yarn test:js
-```
-
-## Benchmarking
-
-This repository includes automated benchmarking that measures and compares performance metrics across pull requests.
-
-### Metrics tracked
-- **Gates**: Total gate count in zero-knowledge circuits (measures circuit complexity)
-- **DA Gas**: Data Availability gas costs
-- **L2 Gas**: Layer 2 execution gas costs
-
-### GitHub Actions integration
-Every pull request automatically:
-1. Runs benchmarks on the base branch
-2. Runs benchmarks on your PR branch
-3. Generates a comparison report as a PR comment
-4. Shows performance improvements or regressions
-
-### Running benchmarks locally
-
-Benchmarks also benefit from automatic sandbox management:
-
-```bash
-# Option 1: Automatic sandbox management (recommended)
-yarn benchmark  # Sandbox starts automatically
-
-# Option 2: Manual sandbox control
-aztec start --sandbox  # Start manually in separate terminal
-yarn benchmark          # Run against existing sandbox
-```
-
-Benchmark results are saved to `benchmarks/` directory.
-
-### Adding new benchmarks
-
-Create a new benchmark file extending the base `Benchmark` class or add a new method line to your existing setup:
-
-```typescript
-import { Benchmark } from '@defi-wonderland/aztec-benchmark';
-
-export class MyContractBenchmark extends Benchmark {
-  async setup() {
-    // Initialize your contract and dependencies
-  }
-
-  getMethods(context: CounterBenchmarkContext): BenchmarkedInteraction[] {
-    const { contract, accounts } = context;
-    const [alice] = accounts;
-
-    const methods = [
-      // Add the function calls that you want to benchmark here
-      contract.withWallet(alice).methods.method(1),
-    ] as BenchmarkedInteraction[];
-
-    return methods.filter(Boolean);
-  }
-}
-```
-
-## Project structure
+## Layout (target)
 
 ```
-├── src/
-│   ├── nr/                     # Noir contracts
-│   │   └── counter_contract/   # Example Counter contract
-│   ├── ts/                     # TypeScript tests and utilities
-│   └── artifacts/              # Generated TypeScript bindings
-├── benchmarks/                 # Performance benchmarking
-├── target/                     # Compiled Noir artifacts
-└── .github/
-    └── workflows/              # CI/CD pipelines
+src/
+├── nr/
+│   ├── attestation_verifier/         lib (modified from primus-labs/zktls-verification-noir)
+│   └── examples/
+│       ├── quote_verifier/           spot-price verifier (Binance/OKX/Coinbase)
+│       └── options/
+│           ├── klines_oracle/        Binance 1-minute candle oracle
+│           └── option_escrow/        american/european option escrow gated on klines_oracle
+└── ts/
+    ├── attest.ts                     drives the Primus SDK → witness JSON
+    ├── prepare-witness.ts            raw.json → witness.json (no Primus call)
+    ├── attestation-verifier-parsing/ vendored Primus TS parser
+    ├── providers/                    per-provider claim + shared verifier config
+    └── *.test.ts                     unit + integration + e2e suites
 ```
-
-## Contract architecture
-
-The Counter contract demonstrates key Aztec patterns:
-
-### Private-to-Public execution pattern
-The `increment()` function is private but enqueues a public `increment_internal()` call. This pattern maintains privacy while updating public state.
-
-### Storage
-- **Owner**: Immutable address set at deployment
-- **Counter**: Mutable public value
-
-### Functions
-- `constructor`: Initializes contract with owner
-- `get_owner`: Returns owner address (public)
-- `increment`: Private function that enqueues public state update
-- `increment_internal`: Internal public function for state modification
-- `get_counter`: Returns current counter value (public)
-
-## Development workflow
-
-1. **Modify Noir contracts** in `src/nr/`
-2. **Run `yarn build`** to rebuild and regenerate TypeScript artifacts
-3. **Write tests** in `src/ts/` using generated artifacts
-4. **Run tests** with `yarn test` (sandbox starts automatically)
-5. **Format code** with `yarn lint:prettier`
-6. **Create PR** and review automated benchmark results
-
-## Code quality
-
-Format all TypeScript and JavaScript files:
-
-```bash
-yarn lint:prettier
-```
-
-## Commit Guidelines
-
-This project uses [Conventional Commits](https://www.conventionalcommits.org/) to ensure consistent and meaningful commit messages. All commits are automatically validated using commitlint.
-
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Write tests for your changes
-4. Ensure all tests pass and benchmarks are acceptable
-5. Follow commit guidelines
-6. Commit your changes (`git commit -m 'feat: add amazing feature'`)
-7. Push to the branch (`git push origin feature/amazing-feature`)
-8. Open a Pull Request
-
-The automated benchmarking will run on your PR, providing performance insights compared to the base branch.
-
-## Resources
-
-- [Aztec Documentation](https://docs.aztec.network/)
-- [Noir Language Documentation](https://noir-lang.org/)
-- [Aztec Sandbox Quickstart](https://docs.aztec.network/developers/getting_started)
-- [Aztec Contracts Guide](https://docs.aztec.network/aztec/smart_contracts_overview)
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
