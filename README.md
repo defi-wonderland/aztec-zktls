@@ -18,7 +18,7 @@ Adapted from [primus-labs/zktls-verification-noir](https://github.com/primus-lab
 
 Closes the upstream splice attack ([issue #9](https://github.com/primus-labs/zktls-verification-noir/issues/9)) by binding the hash to the envelope contents in-circuit instead of accepting it as a free witness.
 
-### Spot-price verifier — `quote_verifier` _(branch: `feat/initial-poc`)_
+### Spot-price verifier — `quote_verifier`
 
 A generic ticker-price verifier for Binance, OKX, and Coinbase. One deployed contract accepts attestations from all three providers; the (URL, parsePath) allow-list is pinned at deploy as Poseidon2 pair-hashes. Each successful verification parses the attested decimal price into a `u128` (scaled by `PRICE_DECIMALS = 8`) and writes a `Quote { price, timestamp }` to a public `historical_quotes` map readable from both public and private context.
 
@@ -28,7 +28,7 @@ exchange ticker URL → Primus attestor (MPC-TLS or proxy-TLS) → signed envelo
        → on-chain `historical_quotes` write + `QuoteRecorded` event
 ```
 
-### Option escrow — `option_escrow` + `klines_oracle` _(branch: `feat/option-escrow`)_
+### Option escrow — `option_escrow` + `klines_oracle`
 
 An American/European option escrow that gates exercise on a zkTLS-attested price. The writer locks the underlying in a per-option escrow address; the buyer pays a premium up front and gets the right to exercise inside the option's window if the attested price hits the strike. Both call and put directions are supported; after the deadline (+ grace for european), the writer reclaims via clawback.
 
