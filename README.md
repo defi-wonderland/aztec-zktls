@@ -1,22 +1,43 @@
-# aztec-zktls — Primus zkTLS quote PoC on Aztec
+# aztec-zktls
 
-End-to-end demo of consuming an off-chain HTTPS data point inside an Aztec contract:
+> Verifying and consuming [Primus Labs](https://primuslabs.xyz) zkTLS attestations inside an Aztec private circuit.
+
+TEE-backed Primus attestors observe HTTPS traffic and sign a structured envelope binding the request URL to a SHA256 hash of the extracted response field. This repo verifies that envelope inside an Aztec contract — secp256k1 over an in-circuit-reconstructed `keccak256(envelope)`, an allow-listed `(URL, parsePath)` pair, the SHA256 binding of each attested field — and exposes the verified result on-chain for downstream consumers.
+
+## Scope
+
+Two parallel workstreams, sharing the same attestation primitives.
+
+### Library — `attestation_verifier`
+
+Adapted from [primus-labs/zktls-verification-noir](https://github.com/primus-labs/zktls-verification-noir) with documented divergences. Exposes three primitives consumers compose:
+
+- `derive_envelope_hash(envelope)` — in-circuit `keccak256` reconstruction from raw envelope fields
+- `verify_ecdsa_over_hash(pk_x, pk_y, sig, hash)` — secp256k1 against a storage-pinned attestor pubkey
+- `bind_content_hashes(data, contents, offsets)` — asserts each `sha256(content)` hex appears at the witnessed offset inside the signed `data` string
+
+Closes the upstream splice attack ([issue #9](https://github.com/primus-labs/zktls-verification-noir/issues/9)) by binding the hash to the envelope contents in-circuit instead of accepting it as a free witness.
+
+### Spot-price verifier — `quote_verifier`
+
+A generic ticker-price verifier for Binance, OKX, and Coinbase. One deployed contract accepts attestations from all three providers; the (URL, parsePath) allow-list is pinned at deploy as Poseidon2 pair-hashes. Each successful verification parses the attested decimal price into a `u128` (scaled by `PRICE_DECIMALS = 8`) and writes a `Quote { price, timestamp }` to a public `historical_quotes` map readable from both public and private context.
 
 ```
 exchange ticker URL → Primus attestor (MPC-TLS or proxy-TLS) → signed envelope
-        → off-chain Noir witness prep → Aztec contract verify → on-chain storage
+       → off-chain Noir witness prep → Aztec private circuit
+       → on-chain `historical_quotes` write + `QuoteRecorded` event
 ```
 
-The contract verifies an ECDSA signature over the envelope and a SHA256 binding to the attested price, then records the normalized `Quote { price, timestamp }` to storage (readable from public AND private context).
+### Option escrow — `option_escrow` + `klines_oracle`
 
-For design rationale:
-- Lib internals + divergences from upstream Primus lib → [`src/nr/attestation_verifier/README.md`](./src/nr/attestation_verifier/README.md)
-- QuoteVerifier example (allow-list, parsing, trust model, limitations) → [`src/nr/examples/README.md`](./src/nr/examples/README.md)
+An American/European option escrow that gates exercise on a zkTLS-attested price. The writer locks the underlying in a per-option escrow address; the buyer pays a premium up front and gets the right to exercise inside the option's window if the attested price hits the strike. Both call and put directions are supported; after the deadline (+ grace for european), the writer reclaims via clawback.
+
+The escrow reads its price feed from a `klines_oracle` contract — a sister verifier specialised for Binance 1-minute OHLC candles with in-circuit timing-window checks. Exercise calls into the oracle directly inside the escrow's `exercise` function — no separate verifier deployment, no event-log scan.
 
 ## Prerequisites
 
 - Node ≥ 22, yarn
-- Aztec CLI 4.3.0 (`.aztecrc` pins it; `aztec-up install 4.3.0` if missing)
+- Aztec CLI 4.3.0 ([install docs](https://docs.aztec.network/developers/getting_started); `.aztecrc` pins it, `aztec-up install 4.3.0` if missing)
 - Base Sepolia wallet with a few cents of ETH for `submitTask` gas
 
 Faucet → Bridge: [pk910 PoW faucet](https://sepolia-faucet.pk910.de/) → [Superbridge](https://superbridge.app/base-sepolia).
@@ -48,20 +69,20 @@ Each run writes `attestations/<claim>-<ts>.{full,raw,witness}.json`:
 
 Provider details in the [examples README](./src/nr/examples/README.md#providers).
 
-## Verify on-chain
+## Tests
+
+Each workstream has its own suite. The tests auto-start a local sandbox where applicable; end-to-end tests against `aztec start --local-network` need that running separately.
 
 ```bash
-# Terminal A:
-aztec start --local-network
-
-# Terminal B:
-yarn test:js       # cached-witness suite (offline, no Primus call)
-yarn test:e2e      # cached + live E2E (real Primus attestation, costs gas)
+yarn test       # noir + ts
+yarn test:nr    # noir only
+yarn test:js    # ts only (some suites need `aztec start --local-network`)
+yarn test:e2e   # ts e2e — gated by RUN_E2E=1, hits Base Sepolia via Primus
 ```
 
 `yarn test:js` uses the committed fixture at `src/ts/fixtures/binance-ETHUSDT.witness.json` by default. Override with `WITNESS_FILE=<path>` or `WITNESS_PROVIDER=binance-` (picks the most recent matching file in `attestations/`).
 
-`yarn test:e2e` (gated by `RUN_E2E=1`) spawns `yarn attest` for two empirically-working cases — Binance+mpctls and Coinbase+proxytls — then verifies each. Requires a funded `PRIVATE_KEY` in `.env` and the local network running.
+`yarn test:e2e` spawns `yarn attest` for two empirically-working cases — Binance+mpctls and Coinbase+proxytls — then verifies each. Requires a funded `PRIVATE_KEY` in `.env` and the local network running. Each E2E run costs a few cents in Base Sepolia testnet gas per attestation.
 
 ## Benchmarks
 
@@ -69,31 +90,23 @@ yarn test:e2e      # cached + live E2E (real Primus attestation, costs gas)
 yarn bench
 ```
 
-Cached baseline: `benchmarks/quote_verifier_base.benchmark.json`.
+Cached baselines live under `benchmarks/`. CI auto-benchmarks every PR against `dev` and posts a comparison comment.
 
-## Layout
+## Layout (target)
 
 ```
-.
-├── README.md
-├── package.json                                all scripts (attest, ccc, test:*, bench)
-├── .aztecrc                                    pins aztec CLI 4.3.0
-├── Nargo.toml                                  Noir workspace
-├── config.json                                 Base Sepolia + Base mainnet RPCs
-├── benchmarks/                                 aztec-benchmark suite + cached baseline
-└── src/
-    ├── nr/
-    │   ├── attestation_verifier/               lib (modified from primus-labs/zktls-verification-noir)
-    │   └── examples/
-    │       └── quote_verifier/                 example Aztec contract
-    └── ts/
-        ├── attest.ts                           Primus pipeline → 3 JSONs
-        ├── prepare-witness.ts                  raw.json → witness.json
-        ├── load-claim.ts
-        ├── attestation-verifier-parsing/       vendored Primus TS parser
-        ├── providers/                          shared verifier.json + per-provider claims
-        ├── utils.ts                            hashing + deploy/verify helpers
-        ├── fixtures/                           committed witness for offline tests
-        ├── quote-verifier.test.ts              cached-witness suite
-        └── quote-verifier.e2e.test.ts          live Primus suite (RUN_E2E=1)
+src/
+├── nr/
+│   ├── attestation_verifier/         lib (modified from primus-labs/zktls-verification-noir)
+│   └── examples/
+│       ├── quote_verifier/           spot-price verifier (Binance/OKX/Coinbase)
+│       └── options/
+│           ├── klines_oracle/        Binance 1-minute candle oracle
+│           └── option_escrow/        american/european option escrow gated on klines_oracle
+└── ts/
+    ├── attest.ts                     drives the Primus SDK → witness JSON
+    ├── prepare-witness.ts            raw.json → witness.json (no Primus call)
+    ├── attestation-verifier-parsing/ vendored Primus TS parser
+    ├── providers/                    per-provider claim + shared verifier config
+    └── *.test.ts                     unit + integration + e2e suites
 ```
