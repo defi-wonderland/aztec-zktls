@@ -134,9 +134,17 @@ pub contract QuoteVerifier {
         self.storage.historical_quotes.at(timestamp as Field).read()
     }
 
-    /// Parse a decimal-string price to a `u128` mantissa scaled to
-    /// `PRICE_DECIMALS`. Reverts on: empty/dot-only input, multiple dots,
-    /// non-digit bytes, > `PRICE_DECIMALS` fractional digits.
+    /// @notice Parse a decimal price string into a `u128` mantissa scaled to
+    ///         `PRICE_DECIMALS`.
+    /// @dev    Reverts on: empty/dot-only input, multiple decimal points,
+    ///         non-digit bytes, or more than `PRICE_DECIMALS` fractional digits.
+    ///         Only the first `bytes.len()` entries are read; trailing storage is
+    ///         unconstrained and ignored.
+    /// @param  bytes The revealed response plaintext (`contents[0]`) holding the
+    ///         price as ASCII decimal digits with an optional single `.`, e.g.
+    ///         `"1234.56"`.
+    /// @return The price as a `u128` mantissa scaled to `PRICE_DECIMALS`
+    ///         (e.g. `"1234.56"` with `PRICE_DECIMALS == 4` yields `12345600`).
     #[contract_library_method]
     fn parse_decimal_price(bytes: BoundedVec<u8, MAX_PLAINTEXT_LEN>) -> u128 {
         let mut value: u128 = 0;
