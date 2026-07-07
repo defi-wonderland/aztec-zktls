@@ -34,13 +34,40 @@ An American/European option escrow that gates exercise on a zkTLS-attested price
 
 The escrow reads its price feed from a `klines_oracle` contract — a sister verifier specialised for Binance 1-minute OHLC candles with in-circuit timing-window checks. Exercise calls into the oracle directly inside the escrow's `exercise` function — no separate verifier deployment, no event-log scan.
 
+## Prerequisites
+
+- Node ≥ 22, yarn
+- Aztec CLI 4.3.0 ([install docs](https://docs.aztec.network/developers/getting_started); `.aztecrc` pins it, `aztec-up install 4.3.0` if missing)
+- Base Sepolia wallet with a few cents of ETH for `submitTask` gas
+
+Faucet → Bridge: [pk910 PoW faucet](https://sepolia-faucet.pk910.de/) → [Superbridge](https://superbridge.app/base-sepolia).
+
 ## Setup
 
 ```bash
-# Install Aztec — https://docs.aztec.network/developers/getting_started
+cp .env.example .env       # paste PRIVATE_KEY of your Base Sepolia wallet
 yarn install
-yarn ccc   # clean + compile noir + codegen TS bindings
+yarn ccc                   # clean + compile Noir + codegen TS bindings
 ```
+
+## Generate an attestation
+
+```bash
+yarn attest binance  symbol=ETHUSDT             # uses claim's default mode (mpctls)
+yarn attest okx      symbol=ETH-USDT            # default proxytls (OKX rejects mpctls)
+yarn attest coinbase symbol=ETH-USD             # default mpctls
+
+# Override per-call:
+yarn attest binance  symbol=ETHUSDT mode=proxytls
+```
+
+Each run writes `attestations/<claim>-<ts>.{full,raw,witness}.json`:
+
+- `full.json` — entire SDK output (submitTask + attest + verifyAndPollTaskResult)
+- `raw.json` — `AttestationFile` shape the parser consumes
+- `witness.json` — Noir witness inputs ready for the contract
+
+Provider details in the [examples README](./src/nr/examples/README.md#providers).
 
 ## Tests
 
@@ -53,7 +80,9 @@ yarn test:js    # ts only (some suites need `aztec start --local-network`)
 yarn test:e2e   # ts e2e — gated by RUN_E2E=1, hits Base Sepolia via Primus
 ```
 
-E2E runs cost a few cents in Base Sepolia testnet gas per attestation.
+`yarn test:js` uses the committed fixture at `src/ts/fixtures/binance-ETHUSDT.witness.json` by default. Override with `WITNESS_FILE=<path>` or `WITNESS_PROVIDER=binance-` (picks the most recent matching file in `attestations/`).
+
+`yarn test:e2e` spawns `yarn attest` for two empirically-working cases — Binance+mpctls and Coinbase+proxytls — then verifies each. Requires a funded `PRIVATE_KEY` in `.env` and the local network running. Each E2E run costs a few cents in Base Sepolia testnet gas per attestation.
 
 ## Benchmarks
 

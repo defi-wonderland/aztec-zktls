@@ -1,0 +1,15 @@
+{
+  "_comment": "Shared verifier/allowlist config used by ALL providers. Each (allowedUrls[i], allowedResponseResolves[i]) PAIR is what the deployed QuoteVerifier accepts. The contract Poseidon2-hashes the URL bytes AND the response_resolve bytes (each zero-padded), then commits the combined hash poseidon2_hash([url_hash, rr_hash]) into a Map<Field, PublicImmutable<bool>>. Binding both prevents a submitter from requesting a different parsePath against the same allow-listed URL and having it recorded as the canonical price. The response_resolve bytes are `keyName + parseType + parsePath` as emitted by the Primus attestor in the signed envelope; for our setup that's 'price' + '' + '<parsePath>'.",
+  "maxResponseNum": 1,
+  "maxUrlLen": 96,
+  "allowedUrls": [
+    "https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT",
+    "https://www.okx.com/api/v5/market/ticker?instId=ETH-USDT",
+    "https://api.coinbase.com/v2/prices/ETH-USD/spot"
+  ],
+  "allowedResponseResolves": [
+    "price$.price",
+    "price$.data[0].last",
+    "price$.data.amount"
+  ]
+}

@@ -1,20 +1,26 @@
 {
-  "name": "aztec-boilerplate",
+  "name": "aztec-zktls",
   "version": "4.3.0",
-  "repository": "https://github.com/defi-wonderland/aztec-boilerplate.git",
+  "private": true,
+  "description": "Primus zkTLS quote verifier PoC on Aztec",
+  "repository": "https://github.com/defi-wonderland/aztec-zktls.git",
   "author": "Wonderland",
   "license": "MIT",
   "type": "module",
   "scripts": {
+    "attest": "tsx src/ts/attest.ts",
+    "prepare-witness": "tsx src/ts/prepare-witness.ts",
     "clean": "rm -rf ./src/artifacts ./target codegenCache.json",
-    "codegen": "aztec codegen target --outdir src/artifacts -f",
     "compile": "aztec compile",
+    "codegen": "aztec codegen target --outdir src/artifacts -f",
+    "ccc": "yarn clean && yarn compile && yarn codegen",
     "test": "yarn test:nr && yarn test:js",
     "test:js": "vitest run",
     "test:nr": "aztec test",
+    "test:e2e": "RUN_E2E=1 vitest run",
+    "typecheck": "tsc --noEmit",
     "lint:prettier": "prettier '**/*.{js,ts}' --write",
-    "ccc": "yarn clean && yarn compile && yarn codegen",
-    "benchmark": "aztec-benchmark --suffix _base",
+    "bench": "NODE_NO_WARNINGS=1 aztec-benchmark --suffix _base",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -23,13 +29,15 @@
   "dependencies": {
     "@aztec/accounts": "4.3.0",
     "@aztec/aztec.js": "4.3.0",
-    "@aztec/entrypoints": "4.3.0",
-    "@aztec/noir-contracts.js": "4.3.0",
-    "@aztec/pxe": "4.3.0",
-    "@aztec/stdlib": "4.3.0",
+    "@aztec/bb.js": "4.3.0",
     "@aztec/wallets": "4.3.0",
-    "@defi-wonderland/aztec-benchmark": "https://github.com/defi-wonderland/aztec-benchmark/releases/download/prerelease-022ee63/defi-wonderland-aztec-benchmark-4.2.0-prerelease.022ee63.tgz",
-    "@types/node": "25.0.10"
+    "@defi-wonderland/aztec-benchmark": "4.3.0",
+    "@noble/curves": "^1.6.0",
+    "@noble/hashes": "^1.5.0",
+    "@primuslabs/network-core-sdk": "^0.1.5",
+    "@types/node": "25.0.10",
+    "dotenv": "^17.2.3",
+    "ethers": "^5.7.2"
   },
   "devDependencies": {
     "@commitlint/cli": "20.3.1",

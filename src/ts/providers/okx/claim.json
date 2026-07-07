@@ -1,0 +1,24 @@
+{
+  "name": "okx-{symbol}",
+  "requests": [
+    {
+      "url": "https://www.okx.com/api/v5/market/ticker?instId={symbol}",
+      "method": "GET",
+      "header": {},
+      "body": ""
+    }
+  ],
+  "responseResolves": [
+    [
+      {
+        "keyName": "price",
+        "parseType": "json",
+        "parsePath": "$.data[0].last",
+        "op": "SHA256"
+      }
+    ]
+  ],
+  "attMode": {
+    "algorithmType": "mpctls"
+  }
+}

@@ -1,7 +1,8 @@
 [workspace]
 members = [
-    "src/nr/counter_contract",
+    "src/nr/attestation_verifier",
+    "src/nr/examples/quote_verifier",
 ]
 
 [benchmark]
-counter = "benchmarks/counter.benchmark.ts"
+quote_verifier = "benchmarks/quote-verifier.benchmark.ts"
